@@ -85,17 +85,16 @@ class DeckManager:
     def add_card(self, card: Card) -> None:
         """
         Ajoute une carte au deck actif.
-        Si une carte du même nom existe déjà, incrémente son count.
-        Met aussi à jour back_image_path si la nouvelle carte en a un (DFC).
-        Comparaison insensible à la casse et tolérante aux noms DFC complets ('A // B' == 'A').
+        Déduplication par image_path : même fichier = même impression = on incrémente le count.
+        Deux impressions différentes du même nom (sets différents) ont des image_path distincts
+        et sont donc ajoutées comme entrées séparées.
         """
         deck = self.active_deck()
         if not deck:
             return
 
-        key = self._card_name_key(card.name)
         for existing in deck.cards:
-            if self._card_name_key(existing.name) == key:
+            if existing.image_path == card.image_path:
                 existing.count += card.count
                 if card.back_image_path:
                     existing.back_image_path = card.back_image_path

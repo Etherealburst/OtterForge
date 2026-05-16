@@ -76,8 +76,9 @@ class BatchImporter:
             }
 
         # --- Format Moxfield basique : "1 Lightning Bolt" ---
+        # Ignoré si la partie nom contient s:/cn: — le chemin TXT personnalisé gère ça mieux
         m = self._MOXFIELD_BASIC_RE.match(line)
-        if m:
+        if m and not re.search(r'\b(s:|cn:)', m.group(2), re.IGNORECASE):
             name = urllib.parse.unquote(m.group(2).strip().replace(' / ', ' // '))
             return {
                 "name": name,
@@ -96,11 +97,16 @@ class BatchImporter:
             "raw": line,
         }
 
-        # Extraction du count (ex: "x4" ou "x 4" en fin de ligne)
+        # Extraction du count : "x4" en fin de ligne, OU chiffre en début ("1 Bolt s:m10 cn:149")
         count_match = re.search(r"\s+x\s*(\d+)\s*$", line, re.IGNORECASE)
         if count_match:
             result["count"] = int(count_match.group(1))
             line = line[:count_match.start()].strip()
+        else:
+            leading = re.match(r'^(\d+)\s+', line)
+            if leading:
+                result["count"] = int(leading.group(1))
+                line = line[leading.end():]
 
         # Extraction de s:XXX
         set_match = re.search(r"\bs:(\S+)", line, re.IGNORECASE)
