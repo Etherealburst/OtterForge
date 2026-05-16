@@ -1,0 +1,62 @@
+# Cache Scryfall (images téléchargées — régénérables)
+cache/
+
+# Sorties générées (feuilles d'impression, ZIP, logs)
+output/
+
+# Decks personnels (données utilisateur)
+decks/
+
+# Images d'endos personnelles
+card_backs/
+
+# Dossier debug Playwright (screenshots + DOM dumps)
+debug_mpc/
+
+# Dossier cards local
+cards/
+
+# Artefacts Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Fichiers parasites (logs pip égarés à la racine)
+1.47.0
+2.5.0
+2024.1.0
+3.0.0
+3.10.0
+4.0.0
+5.2.0
+
+# Installeur / packaging
+*.exe
+*.msi
+MTG_Print_Factory_Setup.exe
+installer.iss
+
+# Claude Code settings locaux
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Env Python
+.env
+.venv/
+venv/
+env/

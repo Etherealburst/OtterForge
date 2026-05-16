@@ -1,0 +1,14 @@
+# MTG Print Factory — dépendances Python
+# Installer avec : pip install -r requirements.txt
+
+# Interface graphique
+customtkinter
+
+# Traitement d'images
+Pillow
+
+# Requêtes HTTP (API Scryfall)
+requests
+
+# Upscaling IA (pipeline futur — optionnel pour l'instant)
+# replicate
