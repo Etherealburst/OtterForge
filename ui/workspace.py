@@ -47,12 +47,16 @@ class Workspace(ctk.CTkFrame):
         # ------------------------------------------------------------------
         # BARRE DE ZOOM + CONTRÔLES
         # ------------------------------------------------------------------
-        zoom_bar = ctk.CTkFrame(self, fg_color="#150f04", height=36)
+        zoom_bar = ctk.CTkFrame(self, fg_color="#0d0c0e", height=36, corner_radius=0)
         zoom_bar.pack(side="top", fill="x")
         zoom_bar.pack_propagate(False)
 
-        ctk.CTkLabel(zoom_bar, text="Zoom :", font=ctk.CTkFont(size=11)).pack(
-            side="left", padx=(10, 4)
+        # Accent bar + micro-label
+        ctk.CTkFrame(zoom_bar, width=3, fg_color="#c04828",
+                     corner_radius=0).pack(side="left", fill="y")
+        ctk.CTkLabel(zoom_bar, text="ZOOM",
+                     font=ctk.CTkFont(size=9), text_color="#5a5060").pack(
+            side="left", padx=(8, 6)
         )
 
         self._zoom_buttons: dict = {}
@@ -66,9 +70,8 @@ class Workspace(ctk.CTkFrame):
             btn.pack(side="left", padx=2, pady=5)
             self._zoom_buttons[factor] = btn
 
-        # Séparateur
-        ctk.CTkLabel(zoom_bar, text="|", text_color="#3a2e10",
-                     font=ctk.CTkFont(size=14)).pack(side="left", padx=6)
+        ctk.CTkFrame(zoom_bar, width=1, fg_color="#252030").pack(
+            side="left", fill="y", padx=8, pady=8)
 
         # Toggle affichage dos
         self._back_toggle_btn = ctk.CTkButton(
@@ -80,29 +83,29 @@ class Workspace(ctk.CTkFrame):
 
         # Aperçu de l'endos choisi
         self._back_thumb_ref = None
-        self._back_thumb_label = tk.Label(zoom_bar, bg="#150f04", cursor="hand2")
+        self._back_thumb_label = tk.Label(zoom_bar, bg="#0d0c0e", cursor="hand2")
         self._back_thumb_label.pack(side="left", padx=(8, 2), pady=3)
         self._back_name_label = ctk.CTkLabel(zoom_bar, text="", font=ctk.CTkFont(size=10),
-                                              text_color="#8a7040")
+                                              text_color="#c4bfb8")
         self._back_name_label.pack(side="left", padx=(0, 2))
 
         self._back_clear_btn = ctk.CTkButton(
             zoom_bar, text="×", width=22, height=22,
             font=ctk.CTkFont(size=12),
-            fg_color="#2a2010", hover_color="#1a1408",
+            fg_color="#581e10", hover_color="#3a1a10",
             command=self._clear_back,
         )
         self._back_clear_btn.pack(side="left")
         self._back_clear_btn.pack_forget()  # caché jusqu'à ce qu'un endos soit choisi
 
         # --- Barre de recherche (droite de la zoom bar) ---
-        ctk.CTkLabel(zoom_bar, text="|", text_color="#3a2e10",
-                     font=ctk.CTkFont(size=14)).pack(side="right", padx=6)
+        ctk.CTkFrame(zoom_bar, width=1, fg_color="#252030").pack(
+            side="right", fill="y", padx=8, pady=8)
 
         self._find_next_btn = ctk.CTkButton(
             zoom_bar, text=">", width=28, height=26,
             font=ctk.CTkFont(size=11),
-            fg_color="#2a2010", hover_color="#1a1408",
+            fg_color="#581e10", hover_color="#3a1a10",
             command=self._find_next,
         )
         self._find_next_btn.pack(side="right", padx=(0, 4), pady=5)
@@ -110,13 +113,13 @@ class Workspace(ctk.CTkFrame):
         self._find_prev_btn = ctk.CTkButton(
             zoom_bar, text="<", width=28, height=26,
             font=ctk.CTkFont(size=11),
-            fg_color="#2a2010", hover_color="#1a1408",
+            fg_color="#581e10", hover_color="#3a1a10",
             command=self._find_prev,
         )
         self._find_prev_btn.pack(side="right", padx=(0, 2), pady=5)
 
         self._find_count_label = ctk.CTkLabel(
-            zoom_bar, text="", font=ctk.CTkFont(size=10), text_color="#8a7040", width=50,
+            zoom_bar, text="", font=ctk.CTkFont(size=10), text_color="#c4bfb8", width=50,
         )
         self._find_count_label.pack(side="right", padx=(0, 2))
 
@@ -140,7 +143,7 @@ class Workspace(ctk.CTkFrame):
         self.scrollbar_x.pack(side="bottom", fill="x")
 
         self.canvas = tk.Canvas(
-            self, bg="#0f0b05",
+            self, bg="#0d0c0e",
             yscrollcommand=self.scrollbar_y.set,
             xscrollcommand=self.scrollbar_x.set,
         )
@@ -270,9 +273,9 @@ class Workspace(ctk.CTkFrame):
     def _update_zoom_buttons(self) -> None:
         for factor, btn in self._zoom_buttons.items():
             if factor == self._zoom:
-                btn.configure(fg_color=("#d4a843", "#c8902a"))
+                btn.configure(fg_color="#c04828")
             else:
-                btn.configure(fg_color=("#2a2010", "#1a1408"))
+                btn.configure(fg_color="#581e10")
 
     # ------------------------------------------------------------------
     # CHARGEMENT PROGRESSIF — queue.Queue pour thread safety
@@ -419,7 +422,7 @@ class Workspace(ctk.CTkFrame):
             self._back_item_map[back_item] = item   # back id → front id
             self.canvas.create_text(
                 bx + self._card_w // 2, y + self._card_h + 10,
-                text="BACK", fill="#4a3818", font=("Arial", 9),
+                text="BACK", fill="#5a5060", font=("Arial", 9),
                 tags=("back_label",),
             )
 
@@ -443,7 +446,7 @@ class Workspace(ctk.CTkFrame):
             self._find_matches = []
             self._find_count_label.configure(text="")
             self._clear_find_highlight()
-            self._find_entry.configure(text_color="#f0dfa0")
+            self._find_entry.configure(text_color="#f0ece4")
 
     def _build_find_matches(self, query: str) -> list:
         """Retourne les canvas items dont le nom de carte contient query (insensible à la casse)."""
@@ -513,7 +516,7 @@ class Workspace(ctk.CTkFrame):
         rect = self.canvas.create_rectangle(
             x - pad, y - pad,
             x + self._card_w + pad, y + self._card_h + pad,
-            outline="#d4a843", width=3, tags=("find_highlight",),
+            outline="#c04828", width=3, tags=("find_highlight",),
         )
         self._find_highlight = rect
         # Efface le highlight après 2 secondes
@@ -673,7 +676,7 @@ class Workspace(ctk.CTkFrame):
             rect = self.canvas.create_rectangle(
                 x - pad, y - pad,
                 x + self._card_w + pad, y + self._card_h + pad,
-                outline="#d4a843", width=2, tags=("selection_rect",),
+                outline="#c04828", width=2, tags=("selection_rect",),
             )
             self._selection_rects.append(rect)
         total = len(self.canvas_items)
@@ -784,7 +787,7 @@ class Workspace(ctk.CTkFrame):
                 cy - preview_h // 2 - pad,
                 cx + preview_w // 2 + pad,
                 cy + preview_h // 2 + pad + name_h,
-                fill="#0f0b05", outline="#3a2e10", width=2,
+                fill="#0d0c0e", outline="#252030", width=2,
             )
             img_item = self.canvas.create_image(cx, cy, image=tk_img, anchor="center")
             name_item = self.canvas.create_text(
@@ -794,7 +797,7 @@ class Workspace(ctk.CTkFrame):
             hint_item = self.canvas.create_text(
                 cx, cy - preview_h // 2 - pad // 2,
                 text="Cliquer pour fermer  ·  Échap",
-                fill="#6b5520", font=("Arial", 9),
+                fill="#5a5060", font=("Arial", 9),
             )
 
             self._preview_items = [bg, img_item, name_item, hint_item]
@@ -828,7 +831,7 @@ class Workspace(ctk.CTkFrame):
         popup.wm_overrideredirect(True)
         popup.geometry(f"+{event.x_root}+{event.y_root}")
 
-        frame = ctk.CTkFrame(popup, fg_color="#1f1a0a", corner_radius=8)
+        frame = ctk.CTkFrame(popup, fg_color="#1a1820", corner_radius=8)
         frame.pack(padx=2, pady=2)
 
         def _cmd(fn):

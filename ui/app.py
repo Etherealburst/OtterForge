@@ -100,8 +100,14 @@ class OtterForgeApp(ctk.CTk):
         self.sidebar = DeckSidebar(self.main_frame, app=self)
         self.sidebar.pack(side="left", fill="y")
 
+        ctk.CTkFrame(self.main_frame, width=1, fg_color="#1a1820",
+                     corner_radius=0).pack(side="left", fill="y")
+
         self.workspace = Workspace(self.main_frame, app=self)
         self.workspace.pack(side="left", fill="both", expand=True)
+
+        ctk.CTkFrame(self.main_frame, width=1, fg_color="#1a1820",
+                     corner_radius=0).pack(side="right", fill="y")
 
         self.preview = PreviewPanel(self.main_frame)
         self.preview.pack(side="right", fill="y")
@@ -357,7 +363,7 @@ class OtterForgeApp(ctk.CTk):
         fname = os.path.basename(path)
         ctk.CTkLabel(
             dialog, text=f"File : {fname}",
-            font=ctk.CTkFont(size=11), text_color="#8a7040",
+            font=ctk.CTkFont(size=11), text_color="#5a5060",
         ).pack(padx=padx)
 
         ctk.CTkLabel(
@@ -382,7 +388,7 @@ class OtterForgeApp(ctk.CTk):
 
         ctk.CTkLabel(
             dialog, text=eta_text,
-            font=ctk.CTkFont(size=11), text_color="#8a7040",
+            font=ctk.CTkFont(size=11), text_color="#5a5060",
             wraplength=360,
         ).pack(padx=padx, pady=(4, 20))
 
@@ -406,7 +412,7 @@ class OtterForgeApp(ctk.CTk):
         ctk.CTkButton(
             btn_frame, text="No", width=110, height=36,
             font=ctk.CTkFont(size=13),
-            fg_color="#2a2010", hover_color="#1a1408",
+            fg_color="#581e10", hover_color="#3a1a10",
             command=on_no,
         ).pack(side="left", padx=10)
 
@@ -476,7 +482,7 @@ class OtterForgeApp(ctk.CTk):
         frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
 
         for item in skipped:
-            row = ctk.CTkFrame(frame, fg_color="#1a1408")
+            row = ctk.CTkFrame(frame, fg_color="#131118")
             row.pack(fill="x", pady=3, padx=2)
 
             ctk.CTkLabel(
@@ -490,7 +496,7 @@ class OtterForgeApp(ctk.CTk):
                 row,
                 text=f"→  {item['reason']}",
                 anchor="w",
-                text_color="#8a7040",
+                text_color="#5a5060",
                 font=ctk.CTkFont(size=11),
             ).pack(side="left", padx=(0, 8), pady=4)
 
@@ -554,7 +560,7 @@ class OtterForgeApp(ctk.CTk):
         ctk.CTkButton(btn_frame, text="Both", width=200,
                       command=lambda: choose("both")).pack(pady=4)
 
-        ctk.CTkButton(dialog, text="Cancel", fg_color="gray30", hover_color="gray20",
+        ctk.CTkButton(dialog, text="Cancel", fg_color="#581e10", hover_color="#3a1a10",
                       command=dialog.destroy).pack(pady=(8, 0))
 
         self.wait_window(dialog)
@@ -656,7 +662,7 @@ class OtterForgeApp(ctk.CTk):
             dialog,
             text=f"Deck : {deck.name}   •   {total_slots} carte(s)",
             font=ctk.CTkFont(size=11),
-            text_color="#8a7040",
+            text_color="#5a5060",
         ).pack(pady=(0, 6))
 
         # --- Visualisation des seuils MPC ---
@@ -678,13 +684,13 @@ class OtterForgeApp(ctk.CTk):
 
         # Avertissement slots vides
         if empty_slots > 0:
-            warn_frame = ctk.CTkFrame(dialog, fg_color="#2a1800", corner_radius=6)
+            warn_frame = ctk.CTkFrame(dialog, fg_color="#2a1010", corner_radius=6)
             warn_frame.pack(padx=20, fill="x", pady=(0, 8))
             ctk.CTkLabel(
                 warn_frame,
                 text=f"⚠  {empty_slots} slot(s) vide(s) — ils apparaîtront à la fin de la commande MPC.",
                 font=ctk.CTkFont(size=10),
-                text_color="#d4a843",
+                text_color="#c4bfb8",
                 wraplength=380,
                 justify="left",
             ).pack(padx=10, pady=6)
@@ -758,7 +764,7 @@ class OtterForgeApp(ctk.CTk):
         ctk.CTkButton(btn_frame, text="Démarrer l'upload", width=170,
                       command=on_start).pack(side="left", padx=6)
         ctk.CTkButton(btn_frame, text="Annuler", width=100,
-                      fg_color="#2a2010", hover_color="#1a1408",
+                      fg_color="#581e10", hover_color="#3a1a10",
                       command=dialog.destroy).pack(side="left", padx=6)
 
         self.wait_window(dialog)
@@ -780,18 +786,18 @@ class OtterForgeApp(ctk.CTk):
         """Affiche la barre visuelle des seuils MPC dans le dialog."""
         import tkinter as tk
 
-        frame = ctk.CTkFrame(parent, fg_color="#1a1408", corner_radius=8)
+        frame = ctk.CTkFrame(parent, fg_color="#1a1820", corner_radius=8)
         frame.pack(padx=20, fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
             frame,
             text="Seuils MPC (lots de 18)",
             font=ctk.CTkFont(size=10),
-            text_color="#6b5520",
+            text_color="#5a5060",
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
         # Canvas pour la barre de progression
-        canvas = tk.Canvas(frame, height=52, bg="#1a1408", highlightthickness=0)
+        canvas = tk.Canvas(frame, height=52, bg="#1a1820", highlightthickness=0)
         canvas.pack(fill="x", padx=12, pady=(0, 4))
 
         canvas.update_idletasks()
@@ -813,7 +819,7 @@ class OtterForgeApp(ctk.CTk):
 
         # Fond gris
         canvas.create_rectangle(x_of(lo), bar_y, x_of(hi), bar_y + bar_h,
-                                 fill="#3a2e10", outline="")
+                                 fill="#252030", outline="")
 
         # Portion remplie (cartes du deck)
         canvas.create_rectangle(x_of(lo), bar_y, x_of(min(total, hi)), bar_y + bar_h,

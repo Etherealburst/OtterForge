@@ -2,9 +2,6 @@
 ui/deck_tabs.py
 ---------------
 Onglets de navigation entre les decks ouverts.
-  - Bouton "−" à gauche : supprime le deck actif (avec confirmation)
-  - Bouton "+" à droite : crée un nouveau deck
-  - Clic droit sur un onglet : menu CTk stylé (Renommer / Supprimer)
 """
 
 import tkinter as tk
@@ -12,67 +9,80 @@ import customtkinter as ctk
 
 
 class DeckTabs(ctk.CTkFrame):
-    """Affiche un bouton par deck ouvert et permet de switcher entre eux."""
 
     def __init__(self, master):
-        super().__init__(master)
+        super().__init__(master, height=40, corner_radius=0, fg_color="#0d0c0e")
         self.master = master
+        self.pack_propagate(False)
         self.buttons: list[ctk.CTkButton] = []
         self._context_popup = None
         self.render()
 
     def render(self) -> None:
-        """Recrée tous les widgets d'onglets depuis la liste des decks."""
-        # Détruire TOUS les enfants (onglets + boutons ± des rendus précédents)
         for widget in self.winfo_children():
             widget.destroy()
         self.buttons.clear()
 
-        # Bouton "−" : supprime le deck actif
+        active_idx = self.master.deck_manager.active_index
+
+        ctk.CTkFrame(self, width=3, fg_color="#252030",
+                     corner_radius=0).pack(side="left", fill="y")
+
+        ctk.CTkLabel(
+            self, text="DECKS",
+            font=ctk.CTkFont(size=9),
+            text_color="#5a5060",
+        ).pack(side="left", padx=(8, 4))
+
         ctk.CTkButton(
-            self,
-            text="−",
-            width=32,
-            fg_color="#2a2010",
-            hover_color="#922b21",
+            self, text="−", width=28, height=26,
+            fg_color="#1a1820", hover_color="#922b21",
+            text_color="#c4bfb8",
             font=ctk.CTkFont(size=16),
             command=self._delete_active_deck,
-        ).pack(side="left", padx=(5, 2), pady=5)
+        ).pack(side="left", padx=(2, 4))
 
         for i, deck in enumerate(self.master.deck_manager.decks):
+            is_active = (i == active_idx)
             btn = ctk.CTkButton(
                 self,
                 text=deck.name,
+                width=max(80, len(deck.name) * 8 + 20),
+                height=26,
+                font=ctk.CTkFont(size=12, weight="bold" if is_active else "normal"),
+                fg_color="#c04828" if is_active else "#1a1820",
+                hover_color="#a83820" if is_active else "#221e2c",
+                text_color="#f0ece4",
+                border_width=1 if not is_active else 0,
+                border_color="#252030",
                 command=lambda idx=i: self._select(idx),
             )
-            btn.pack(side="left", padx=5, pady=5)
+            btn.pack(side="left", padx=3, pady=7)
             btn.bind("<Button-3>", lambda e, idx=i: self._show_context_menu(e, idx))
             self.buttons.append(btn)
 
-        # Bouton "+" : crée un nouveau deck
         ctk.CTkButton(
-            self,
-            text="+",
-            width=32,
+            self, text="+", width=28, height=26,
+            fg_color="#1a1820", hover_color="#221e2c",
+            text_color="#5a5060",
+            font=ctk.CTkFont(size=16),
             command=self._create_deck_dialog,
-        ).pack(side="left", padx=(0, 5), pady=5)
+        ).pack(side="left", padx=(2, 8))
 
     def _select(self, index: int) -> None:
-        """Switche vers le deck sélectionné et met à jour l'UI."""
         self.master.deck_manager.set_active(index)
         deck = self.master.deck_manager.active_deck()
-
         self.master._sync_back_from_active_deck()
         self.master.workspace.load_cards(deck.cards)
         self.master.sidebar.refresh()
         self.master.statusbar.set_status(f"Deck actif : {deck.name}")
+        self.render()
 
     # ------------------------------------------------------------------
-    # MENU CONTEXTUEL (clic droit) — popup CTk lisible
+    # MENU CONTEXTUEL
     # ------------------------------------------------------------------
 
     def _show_context_menu(self, event: tk.Event, index: int) -> None:
-        """Affiche un menu contextuel CTk bien dimensionné."""
         self._close_context_popup()
 
         popup = tk.Toplevel(self)
@@ -80,7 +90,7 @@ class DeckTabs(ctk.CTkFrame):
         popup.geometry(f"+{event.x_root}+{event.y_root}")
         self._context_popup = popup
 
-        frame = ctk.CTkFrame(popup, fg_color="#1f1a0a", corner_radius=8)
+        frame = ctk.CTkFrame(popup, fg_color="#1a1820", corner_radius=8)
         frame.pack(padx=2, pady=2)
 
         font = ctk.CTkFont(size=13)
@@ -100,7 +110,7 @@ class DeckTabs(ctk.CTkFrame):
 
         ctk.CTkButton(
             frame, text="  Supprimer",
-            fg_color="#2a2010", hover_color="#922b21",
+            fg_color="#581e10", hover_color="#922b21",
             command=_cmd(lambda: self._delete_deck(index)),
             **kw,
         ).pack(padx=6, pady=(2, 6))
@@ -123,7 +133,6 @@ class DeckTabs(ctk.CTkFrame):
             self._context_popup = None
 
     def _rename_deck_dialog(self, index: int) -> None:
-        """Ouvre une fenêtre de dialogue pour renommer le deck."""
         current_name = self.master.deck_manager.decks[index].name
 
         dialog = ctk.CTkToplevel(self)
@@ -158,11 +167,9 @@ class DeckTabs(ctk.CTkFrame):
         ctk.CTkButton(dialog, text="Renommer", command=confirm).pack(pady=8)
 
     def _delete_active_deck(self) -> None:
-        """Supprime le deck actuellement actif."""
         self._delete_deck(self.master.deck_manager.active_index)
 
     def _delete_deck(self, index: int) -> None:
-        """Demande confirmation puis supprime le deck."""
         decks = self.master.deck_manager.decks
         if len(decks) <= 1:
             self.master.statusbar.set_status("Impossible de supprimer le seul deck.")
@@ -178,11 +185,11 @@ class DeckTabs(ctk.CTkFrame):
         dialog.focus_set()
 
         ctk.CTkLabel(
-            dialog,
-            text=f'Supprimer "{deck_name}" ?',
+            dialog, text=f'Supprimer "{deck_name}" ?',
             font=ctk.CTkFont(size=14),
         ).pack(pady=(20, 4))
-        ctk.CTkLabel(dialog, text="Cette action est irréversible.").pack(pady=(0, 12))
+        ctk.CTkLabel(dialog, text="Cette action est irréversible.",
+                     text_color="#c4bfb8").pack(pady=(0, 12))
 
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack()
@@ -201,14 +208,14 @@ class DeckTabs(ctk.CTkFrame):
 
         ctk.CTkButton(btn_frame, text="Supprimer", fg_color="#c0392b", hover_color="#922b21",
                       command=confirm).pack(side="left", padx=8)
-        ctk.CTkButton(btn_frame, text="Annuler", command=dialog.destroy).pack(side="left", padx=8)
+        ctk.CTkButton(btn_frame, text="Annuler", fg_color="#581e10", hover_color="#3a1a10",
+                      command=dialog.destroy).pack(side="left", padx=8)
 
     # ------------------------------------------------------------------
     # CRÉER UN NOUVEAU DECK
     # ------------------------------------------------------------------
 
     def _create_deck_dialog(self) -> None:
-        """Ouvre une fenêtre de dialogue pour saisir le nom du nouveau deck."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Nouveau deck")
         dialog.geometry("300x130")
@@ -228,9 +235,12 @@ class DeckTabs(ctk.CTkFrame):
                 return
             self.master.deck_manager.create_deck(name)
             self.master._auto_save()
-            self.render()
             new_index = len(self.master.deck_manager.decks) - 1
-            self._select(new_index)
+            self.master.deck_manager.set_active(new_index)
+            self.render()
+            deck = self.master.deck_manager.active_deck()
+            self.master.workspace.load_cards(deck.cards)
+            self.master.sidebar.refresh()
             self.master.statusbar.set_status(f"Nouveau deck créé : {name}")
             dialog.destroy()
 

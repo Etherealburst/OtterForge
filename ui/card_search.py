@@ -2,38 +2,48 @@
 ui/card_search.py
 -----------------
 Barre de recherche de cartes Magic.
-Délègue la recherche et l'ajout à MTGPrintFactoryApp.
 """
 
 import customtkinter as ctk
 
 
 class CardSearch(ctk.CTkFrame):
-    """
-    Barre de recherche avec champ texte et bouton Add.
-    Appelle app.search_and_add_card(name) sur soumission.
-    """
 
     def __init__(self, master):
-        super().__init__(master)
+        super().__init__(master, height=46, corner_radius=0, fg_color="#0d0c0e")
         self.master = master
+        self.pack_propagate(False)
         self._build()
 
     def _build(self):
-        self.entry = ctk.CTkEntry(self, placeholder_text="Card name  or  s:SET cn:NUM", width=340)
-        self.entry.pack(side="left", padx=5, pady=5)
+        ctk.CTkFrame(self, width=3, height=26, fg_color="#c04828",
+                     corner_radius=2).pack(side="left", padx=(10, 8))
 
-        # Permet d'appuyer sur Entrée pour lancer la recherche
+        ctk.CTkLabel(
+            self, text="SEARCH",
+            font=ctk.CTkFont(size=9),
+            text_color="#5a5060",
+        ).pack(side="left", padx=(0, 8))
+
+        self.entry = ctk.CTkEntry(
+            self,
+            placeholder_text="Card name  ·  s:SET cn:NUM  ·  1 Name (SET) #",
+            width=460, height=30,
+            font=ctk.CTkFont(size=12),
+        )
+        self.entry.pack(side="left", padx=(0, 8))
         self.entry.bind("<Return>", lambda e: self._on_add())
 
-        self.add_btn = ctk.CTkButton(self, text="Add", command=self._on_add)
-        self.add_btn.pack(side="left", padx=5)
+        self.add_btn = ctk.CTkButton(
+            self, text="Add to Deck", width=110, height=30,
+            font=ctk.CTkFont(size=12),
+            command=self._on_add,
+        )
+        self.add_btn.pack(side="left")
 
     def _on_add(self):
-        """Déclenche la recherche et l'ajout de la carte dans le deck."""
         name = self.entry.get().strip()
         if not name:
             return
-
         self.master.search_and_add_card(name)
         self.entry.delete(0, "end")
