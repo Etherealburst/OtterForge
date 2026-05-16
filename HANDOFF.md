@@ -1,6 +1,7 @@
 # HANDOFF — OtterForge V2.0
 
-**Date :** 2026-05-14  
+**Date :** 2026-05-16  
+**GitHub :** https://github.com/Etherealburst/OtterForge-V2 (privé, branche `master`)  
 **Fichier à lire en premier :** `engine/mpc_uploader.py`  
 **Référence :** `CLAUDE.md` (architecture complète du projet)
 
@@ -14,7 +15,75 @@ Application Python (customtkinter) qui upload des decks proxy MTG sur MakePlayin
 
 ## État actuel : TOUT FONCTIONNE ✅
 
-L'upload complet (fronts → backs → page de révision) est opérationnel depuis le 2026-05-14.
+L'upload complet (fronts → backs → page de révision) est opérationnel. Toutes les fonctionnalités principales sont stables au 2026-05-16.
+
+---
+
+## Corrections appliquées le 2026-05-16
+
+### A. `add_cards_bulk` avec déduplication (`engine/deck_manager.py`) ✅
+
+**Problème :** L'import TXT utilisait `deck.cards.append()` directement → doublons si une carte était déjà dans le deck.  
+**Correction :** Délègue à `add_card()` qui merge par nom normalisé DFC.
+
+### B. `REALESRGAN_DIR` déplacé vers `config.py` ✅
+
+**Problème :** Chemin hardcodé dans `engine/upscaler.py`.  
+**Correction :** `config.py` contient maintenant `REALESRGAN_DIR = r"C:\Users\Samuel\Documents\MTG\Real-ESGRAN"`. `upscaler.py` importe `from config import REALESRGAN_DIR`.
+
+### C. `_save_transition_data` supprimée (`engine/mpc_uploader.py`) ✅
+
+Méthode marquée DEPRECATED sans appelants — supprimée proprement.
+
+### D. Bouton "+" dédoublé dans DeckTabs (`ui/deck_tabs.py`) ✅
+
+**Problème :** `render()` ne détruisait que `self.buttons`, laissant le bouton "+" de la passe précédente en place.  
+**Correction :** `for widget in self.winfo_children(): widget.destroy()` au début de `render()`.
+
+### E. Menu contextuel deck remplacé (`ui/deck_tabs.py`) ✅
+
+**Problème :** `tk.Menu` natif Windows trop petit, illisible.  
+**Correction :** CTkToplevel popup avec police 13, couleurs OtterForge grays.
+
+### F. Bouton "−" pour supprimer le deck actif (`ui/deck_tabs.py`) ✅
+
+Ajouté à gauche des onglets. Confirmation CTkToplevel avant suppression.
+
+### G. Ctrl+A pour tout sélectionner + Suppr pour vider le deck (`ui/workspace.py`) ✅
+
+- Ctrl+A : contours bleus sur toutes les cartes, état `_all_selected = True`
+- Suppr avec `_all_selected` : confirmation puis vide `deck.cards`
+- Échap / clic : annule la sélection
+
+### H. Décodage URL des noms de cartes (`engine/batch_importer.py`) ✅
+
+**Problème :** `Continue%3F` dans un fichier TXT → passé tel quel à Scryfall → 404.  
+**Correction :** `urllib.parse.unquote()` appliqué au nom dans les 3 branches de `parse_line()` (Arena/Moxfield full, Moxfield basic, TXT custom).
+
+---
+
+## Repo GitHub (depuis 2026-05-16)
+
+- **URL :** https://github.com/Etherealburst/OtterForge-V2
+- **Branche :** `master`
+- **Contenu versionné :** code Python, `assets/`, `CLAUDE.md`, `HANDOFF.md`, `requirements.txt`
+- **Exclus (.gitignore) :** `cache/`, `output/`, `decks/`, `card_backs/`, `debug_mpc/`, executables, `__pycache__`
+
+```powershell
+cd "C:\Users\Samuel\Documents\MTG\OtterForge - V2.0"
+git pull   # récupérer les changements du scheduled agent
+```
+
+---
+
+## Agent planifié (4h55 AM, 2026-05-16) — ONE-SHOT
+
+- **ID :** `trig_012sgTCcCM3mUkpzLa1eLbDd`
+- **URL :** https://claude.ai/code/routines/trig_012sgTCcCM3mUkpzLa1eLbDd
+- **Tâches :** (1) Analyse bugs + corrections (sans toucher `mpc_uploader.py`) (2) Restyling UI Or/Charbon (#d4a843, #c8902a, #0f0b05)
+- **Après exécution :** `git pull` pour récupérer les commits, puis `python main.py` pour vérifier.
+
+---
 
 ---
 

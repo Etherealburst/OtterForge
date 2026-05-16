@@ -89,7 +89,9 @@ class ScryfallDownloader:
         collector = card_json.get("collector_number", "")
 
         def _download_face(image_url: str, face_name: str, suffix: str = "") -> str | None:
-            safe_name = face_name.replace("/", "-").replace("\\", "-")
+            safe_name = face_name
+            for ch in r'\/:*?"<>|':
+                safe_name = safe_name.replace(ch, "-")
             if set_code and collector:
                 filename = f"{safe_name}_{set_code}_{collector}{suffix}.png"
             else:
@@ -103,7 +105,7 @@ class ScryfallDownloader:
                 with open(path, "wb") as f:
                     f.write(response.content)
                 return path
-            except requests.exceptions.RequestException as e:
+            except (requests.exceptions.RequestException, OSError) as e:
                 print(f"[ScryfallDownloader] Erreur téléchargement image : {e}")
                 return None
 

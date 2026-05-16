@@ -14,9 +14,9 @@ class StatusBar(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master, height=28, corner_radius=0)
         self.pack_propagate(False)
-        self.configure(fg_color="#2b2b2b")
+        self.configure(fg_color="#150f04")
 
-        self.label = ctk.CTkLabel(self, text="Ready", anchor="w")
+        self.label = ctk.CTkLabel(self, text="Ready", anchor="w", text_color="#8a7040")
         self.label.pack(side="left", padx=10)
 
         # ------------------------------------------------------------------
@@ -28,7 +28,7 @@ class StatusBar(ctk.CTkFrame):
             self._progress_frame,
             text="",
             font=ctk.CTkFont(size=11),
-            text_color="gray70",
+            text_color="#8a7040",
         )
         self._progress_count.pack(side="right", padx=(4, 10))
 

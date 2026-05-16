@@ -34,7 +34,7 @@ class DeckSidebar(ctk.CTkFrame):
         self.total_label = ctk.CTkLabel(
             header,
             text="",
-            text_color="gray60",
+            text_color="#8a7040",
             font=ctk.CTkFont(size=11),
         )
         self.total_label.pack(side="right")
@@ -67,7 +67,7 @@ class DeckSidebar(ctk.CTkFrame):
 
     def _build_row(self, card) -> None:
         """Construit une ligne pour une carte avec ses contrôles."""
-        row = ctk.CTkFrame(self.list_frame, fg_color="gray20")
+        row = ctk.CTkFrame(self.list_frame, fg_color="#1a1408")
         row.pack(fill="x", pady=2, padx=2)
 
         # Nom tronqué
@@ -105,7 +105,7 @@ class DeckSidebar(ctk.CTkFrame):
         ctk.CTkButton(
             ctrl, text="×", width=22, height=22,
             font=ctk.CTkFont(size=12),
-            fg_color="gray35", hover_color="#922b21",
+            fg_color="#2a2010", hover_color="#922b21",
             command=lambda c=card: self._remove_card(c),
         ).pack(side="left", padx=(4, 0))
 

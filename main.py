@@ -1,13 +1,14 @@
 """
 main.py
 -------
-Point d'entrée de MTG Print Factory.
-Crée les dossiers requis, puis lance l'application.
+Point d'entrée d'OtterForge.
+Crée les dossiers requis, applique le thème, puis lance l'application.
 """
 
 import os
 import sys
-from ui.app import MTGPrintFactoryApp
+import customtkinter as ctk
+from ui.app import OtterForgeApp
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
@@ -36,10 +37,18 @@ for folder in REQUIRED_FOLDERS:
 
 
 # ------------------------------------------------------------------
+# THÈME OTTERFORGE
+# ------------------------------------------------------------------
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("assets/otterforge_theme.json")
+
+
+# ------------------------------------------------------------------
 # LANCEMENT
 # ------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app = MTGPrintFactoryApp()
+    app = OtterForgeApp()
     app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()

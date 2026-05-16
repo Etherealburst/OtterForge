@@ -33,7 +33,7 @@ class DeckTabs(ctk.CTkFrame):
             self,
             text="−",
             width=32,
-            fg_color="gray30",
+            fg_color="#2a2010",
             hover_color="#922b21",
             font=ctk.CTkFont(size=16),
             command=self._delete_active_deck,
@@ -80,7 +80,7 @@ class DeckTabs(ctk.CTkFrame):
         popup.geometry(f"+{event.x_root}+{event.y_root}")
         self._context_popup = popup
 
-        frame = ctk.CTkFrame(popup, fg_color="gray25", corner_radius=8)
+        frame = ctk.CTkFrame(popup, fg_color="#1f1a0a", corner_radius=8)
         frame.pack(padx=2, pady=2)
 
         font = ctk.CTkFont(size=13)
@@ -100,7 +100,7 @@ class DeckTabs(ctk.CTkFrame):
 
         ctk.CTkButton(
             frame, text="  Supprimer",
-            fg_color="gray35", hover_color="#922b21",
+            fg_color="#2a2010", hover_color="#922b21",
             command=_cmd(lambda: self._delete_deck(index)),
             **kw,
         ).pack(padx=6, pady=(2, 6))

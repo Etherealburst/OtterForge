@@ -1,7 +1,7 @@
 """
 ui/app.py
 ---------
-Fenêtre principale de MTG Print Factory.
+Fenêtre principale d'OtterForge.
 Orchestre tous les composants UI et les modules engine.
 
 Threading : la recherche Scryfall tourne dans un thread séparé pour éviter
@@ -37,9 +37,9 @@ from engine.mpc_uploader import MPCUploader
 from config import OUTPUT_DIR, DECKS_DIR
 
 
-class MTGPrintFactoryApp(ctk.CTk):
+class OtterForgeApp(ctk.CTk):
     """
-    Fenêtre principale de l'application.
+    Fenêtre principale d'OtterForge.
     Instancie tous les composants UI et les modules engine.
     Sert de point de coordination (Controller) entre UI et Engine.
     """
@@ -47,7 +47,7 @@ class MTGPrintFactoryApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("MTG Print Factory")
+        self.title("OtterForge")
         self.geometry("1280x800")
         self.minsize(900, 600)
         self.after(0, lambda: self.state("zoomed"))  # plein écran après init
@@ -357,7 +357,7 @@ class MTGPrintFactoryApp(ctk.CTk):
         fname = os.path.basename(path)
         ctk.CTkLabel(
             dialog, text=f"File : {fname}",
-            font=ctk.CTkFont(size=11), text_color="gray65",
+            font=ctk.CTkFont(size=11), text_color="#8a7040",
         ).pack(padx=padx)
 
         ctk.CTkLabel(
@@ -382,7 +382,7 @@ class MTGPrintFactoryApp(ctk.CTk):
 
         ctk.CTkLabel(
             dialog, text=eta_text,
-            font=ctk.CTkFont(size=11), text_color="gray65",
+            font=ctk.CTkFont(size=11), text_color="#8a7040",
             wraplength=360,
         ).pack(padx=padx, pady=(4, 20))
 
@@ -406,7 +406,7 @@ class MTGPrintFactoryApp(ctk.CTk):
         ctk.CTkButton(
             btn_frame, text="No", width=110, height=36,
             font=ctk.CTkFont(size=13),
-            fg_color="gray35", hover_color="gray25",
+            fg_color="#2a2010", hover_color="#1a1408",
             command=on_no,
         ).pack(side="left", padx=10)
 
@@ -476,7 +476,7 @@ class MTGPrintFactoryApp(ctk.CTk):
         frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
 
         for item in skipped:
-            row = ctk.CTkFrame(frame, fg_color="gray20")
+            row = ctk.CTkFrame(frame, fg_color="#1a1408")
             row.pack(fill="x", pady=3, padx=2)
 
             ctk.CTkLabel(
@@ -490,7 +490,7 @@ class MTGPrintFactoryApp(ctk.CTk):
                 row,
                 text=f"→  {item['reason']}",
                 anchor="w",
-                text_color="gray60",
+                text_color="#8a7040",
                 font=ctk.CTkFont(size=11),
             ).pack(side="left", padx=(0, 8), pady=4)
 
@@ -656,7 +656,7 @@ class MTGPrintFactoryApp(ctk.CTk):
             dialog,
             text=f"Deck : {deck.name}   •   {total_slots} carte(s)",
             font=ctk.CTkFont(size=11),
-            text_color="gray70",
+            text_color="#8a7040",
         ).pack(pady=(0, 6))
 
         # --- Visualisation des seuils MPC ---
@@ -678,13 +678,13 @@ class MTGPrintFactoryApp(ctk.CTk):
 
         # Avertissement slots vides
         if empty_slots > 0:
-            warn_frame = ctk.CTkFrame(dialog, fg_color="#3D2B00", corner_radius=6)
+            warn_frame = ctk.CTkFrame(dialog, fg_color="#2a1800", corner_radius=6)
             warn_frame.pack(padx=20, fill="x", pady=(0, 8))
             ctk.CTkLabel(
                 warn_frame,
                 text=f"⚠  {empty_slots} slot(s) vide(s) — ils apparaîtront à la fin de la commande MPC.",
                 font=ctk.CTkFont(size=10),
-                text_color="#E8A838",
+                text_color="#d4a843",
                 wraplength=380,
                 justify="left",
             ).pack(padx=10, pady=6)
@@ -758,7 +758,7 @@ class MTGPrintFactoryApp(ctk.CTk):
         ctk.CTkButton(btn_frame, text="Démarrer l'upload", width=170,
                       command=on_start).pack(side="left", padx=6)
         ctk.CTkButton(btn_frame, text="Annuler", width=100,
-                      fg_color="gray30", hover_color="gray20",
+                      fg_color="#2a2010", hover_color="#1a1408",
                       command=dialog.destroy).pack(side="left", padx=6)
 
         self.wait_window(dialog)
@@ -780,18 +780,18 @@ class MTGPrintFactoryApp(ctk.CTk):
         """Affiche la barre visuelle des seuils MPC dans le dialog."""
         import tkinter as tk
 
-        frame = ctk.CTkFrame(parent, fg_color="gray17", corner_radius=8)
+        frame = ctk.CTkFrame(parent, fg_color="#1a1408", corner_radius=8)
         frame.pack(padx=20, fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
             frame,
             text="Seuils MPC (lots de 18)",
             font=ctk.CTkFont(size=10),
-            text_color="gray50",
+            text_color="#6b5520",
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
         # Canvas pour la barre de progression
-        canvas = tk.Canvas(frame, height=52, bg="#2b2b2b", highlightthickness=0)
+        canvas = tk.Canvas(frame, height=52, bg="#1a1408", highlightthickness=0)
         canvas.pack(fill="x", padx=12, pady=(0, 4))
 
         canvas.update_idletasks()
@@ -813,7 +813,7 @@ class MTGPrintFactoryApp(ctk.CTk):
 
         # Fond gris
         canvas.create_rectangle(x_of(lo), bar_y, x_of(hi), bar_y + bar_h,
-                                 fill="#404040", outline="")
+                                 fill="#3a2e10", outline="")
 
         # Portion remplie (cartes du deck)
         canvas.create_rectangle(x_of(lo), bar_y, x_of(min(total, hi)), bar_y + bar_h,
@@ -946,7 +946,7 @@ class MTGPrintFactoryApp(ctk.CTk):
 
     def on_close(self) -> None:
         """Gère la fermeture propre de l'application."""
-        if not messagebox.askyesno("Close", "Do you want to close MTG Print Factory?"):
+        if not messagebox.askyesno("Fermer OtterForge", "Fermer OtterForge ?"):
             return
         try:
             self.quit()

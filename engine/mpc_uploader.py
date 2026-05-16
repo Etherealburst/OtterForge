@@ -16,7 +16,12 @@ Flux :
 import json as _json
 import os
 import math
+import socket
+import subprocess
+import sys
+import time
 import urllib.parse as _urlparse
+import urllib.request as _urllib_req
 
 MPC_PRODUCT_URL = (
     "https://www.makeplayingcards.com/design/custom-blank-card-traditional-size.html"
@@ -35,6 +40,50 @@ class MPCUploader:
         self._oc_initial = None      # hidd_original_count du produit (e.g. '55')
         self._pieces_initial = None  # Pieces dans hpci du step1 initial (e.g. 55)
         self._path_to_pid: dict = {}  # image_path -> pid (survives MPC deduplication)
+
+    # ------------------------------------------------------------------
+    # HELPERS LANCEMENT CHROMIUM INDÉPENDANT
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _find_free_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            return s.getsockname()[1]
+
+    def _launch_chromium_detached(self, exe: str, port: int) -> None:
+        """Lance Chromium comme processus totalement détaché de Python.
+        Le navigateur survit à la fermeture de l'application.
+        """
+        args = [
+            exe,
+            f"--remote-debugging-port={port}",
+            "--start-maximized",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-session-crashed-bubble",
+        ]
+        if self.headless:
+            args.append("--headless=new")
+        kwargs: dict = {"close_fds": True}
+        if sys.platform == "win32":
+            # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — survit à la fermeture du parent
+            kwargs["creationflags"] = 0x00000008 | 0x00000200
+        else:
+            kwargs["start_new_session"] = True
+        subprocess.Popen(args, **kwargs)
+
+    def _wait_for_cdp(self, port: int, timeout_s: int = 30) -> None:
+        """Attend que le endpoint CDP de Chromium réponde."""
+        url = f"http://localhost:{port}/json/version"
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            try:
+                _urllib_req.urlopen(url, timeout=1)
+                return
+            except Exception:
+                time.sleep(0.5)
+        raise RuntimeError(f"Chromium CDP non disponible sur le port {port} après {timeout_s}s")
 
     # ------------------------------------------------------------------
     # POINT D'ENTRÉE
@@ -64,13 +113,22 @@ class MPCUploader:
                 progress_callback(current, total, label)
             print(f"[MPC] {label}")
 
+        # --- Obtenir le chemin de Chromium installé par Playwright ---
+        with sync_playwright() as _pw:
+            chromium_exe = _pw.chromium.executable_path
+
+        # --- Lancer Chromium comme processus indépendant (survit à la fermeture de l'app) ---
+        port = self._find_free_port()
+        print(f"[MPC] Lancement Chromium (port CDP {port})…")
+        self._launch_chromium_detached(chromium_exe, port)
+        self._wait_for_cdp(port)
+
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=self.headless,
-                slow_mo=50,
-                args=["--start-maximized"],
+            browser = p.chromium.connect_over_cdp(
+                f"http://localhost:{port}",
             )
-            page = browser.new_page(viewport=None)
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
             page.set_default_timeout(30_000)
             # Accepte tous les dialog JS (confirm, alert, prompt) — critique pour setNextStep().
             # MPC affiche un confirm() lors du passage d'étape ; sans accept(), la navigation
@@ -228,12 +286,12 @@ class MPCUploader:
                 nav_sources = _back_sources if back_frame else _front_sources
                 nav_layer = back_layer if back_frame else front_layer
                 self._click_next_step(page, frame=nav_frame, sources=nav_sources, layer=nav_layer)
-                page.wait_for_timeout(2_000)
+                page.wait_for_timeout(1_000)
                 if "dn_texteditor" in page.url:
                     step_name = "front" if "dn_texteditor_front" in page.url else "back"
                     print(f"[MPC] Étape 'Add text to {step_name}' → skip automatique")
                     self._click_next_step(page)
-                    page.wait_for_timeout(2_000)
+                    page.wait_for_timeout(1_000)
                 print(f"[MPC] Page de révision : {page.url}")
 
                 # Attendre que la page de révision charge les thumbnails
@@ -253,27 +311,19 @@ class MPCUploader:
                     page.evaluate("window.scrollTo(0, 0)")
                 except Exception:
                     pass
-                page.wait_for_timeout(3_000)
+                page.wait_for_timeout(1_500)
 
                 cb(total, "Upload terminé — finalisez la commande dans le navigateur")
                 self._screenshot(page, "05_done")
-
-                try:
-                    page.wait_for_timeout(3_600_000)
-                except PWError:
-                    pass
+                print("[MPC] Chromium reste ouvert — vous pouvez fermer OtterForge sans perdre votre commande.")
 
             except PWError:
-                print("[MPC] Navigateur fermé par l'utilisateur.")
+                print("[MPC] Connexion Playwright interrompue (navigateur fermé ?).")
             except Exception as e:
                 self._screenshot(page, "error")
                 print(f"[MPC] Erreur : {e}")
                 raise
-            finally:
-                try:
-                    browser.close()
-                except Exception:
-                    pass
+            # Pas de browser.close() — Chromium tourne en processus indépendant
 
     # ------------------------------------------------------------------
     # CONSTRUCTION DES SLOTS
@@ -505,7 +555,7 @@ class MPCUploader:
             txt.fill("")
             txt.press_sequentially(str(mpc_qty))
             print(f"[MPC] txt_card_number ← {mpc_qty} (renderPacking via onkeyup)")
-            page.wait_for_timeout(1_500)
+            page.wait_for_timeout(500)
         except Exception as e:
             if any(k in str(e).lower() for k in _nav_kw):
                 print("[MPC] txt_card_number → navigation prématurée")
@@ -534,7 +584,7 @@ class MPCUploader:
                 return False
 
         _call_set_mode(frame)
-        page.wait_for_timeout(3_000)
+        page.wait_for_timeout(1_500)
 
         # Attendre l'éditeur ; appeler setMode sur chaque page d'avancement
         for attempt in range(6):
@@ -546,7 +596,7 @@ class MPCUploader:
             frame = self._wait_for_loaded_frame(page, timeout=8_000)
             if not frame:
                 print(f"[MPC] ⚠ Frame non chargé (tentative {attempt + 1})")
-                page.wait_for_timeout(2_000)
+                page.wait_for_timeout(1_000)
                 continue
 
             print(f"[MPC] Avancement {attempt + 1} — {frame.url}")
@@ -557,7 +607,7 @@ class MPCUploader:
                 return
 
             _call_set_mode(frame)
-            page.wait_for_timeout(3_000)
+            page.wait_for_timeout(1_500)
 
         print("[MPC] ⚠ Éditeur non atteint après setMode")
 
@@ -639,7 +689,7 @@ class MPCUploader:
                 step_name = "front" if "dn_texteditor_front" in page.url else "back"
                 print(f"[MPC] Étape 'Add text to {step_name}' détectée → skip automatique")
                 self._click_next_step(page)
-                page.wait_for_timeout(2_000)
+                page.wait_for_timeout(1_000)
                 continue
 
             for frame in page.frames:
@@ -661,7 +711,7 @@ class MPCUploader:
                             side = "back" if "_nb" in frame_url else "front"
                             mode_label = "same" if mode == 1 else "different"
                             print(f"[MPC] setMode ImageText {mode_label} ({mode}) → éditeur {side}")
-                            page.wait_for_timeout(3_000)
+                            page.wait_for_timeout(1_500)
                             break
                     except Exception as e:
                         if any(k in str(e).lower() for k in _nav_kw):
@@ -833,7 +883,7 @@ class MPCUploader:
             nat_layer = layer or "front"
             print(f"[MPC] Sauvegarde {nat_layer} ({len(sources)} slots) → serveur MPC…")
             self._post_complete_sources(page, frame, sources, nat_layer)
-            page.wait_for_timeout(3_000)
+            page.wait_for_timeout(1_500)
 
         # 3. oDesign.setNextStep() — le confirm() dialog est géré par page.on("dialog", accept).
         # expect_navigation AVANT evaluate() pour capturer les navigations immédiates.
@@ -846,7 +896,7 @@ class MPCUploader:
             with page.expect_navigation(wait_until="domcontentloaded", timeout=600_000):
                 page.evaluate("oDesign.setNextStep()")
             print(f"[MPC] (setNextStep) → {page.url}")
-            page.wait_for_timeout(2_000)
+            page.wait_for_timeout(1_000)
             return
         except Exception as e:
             print(f"[MPC] ⚠ setNextStep: {e}")
@@ -874,7 +924,7 @@ class MPCUploader:
                 with page.expect_navigation(wait_until="domcontentloaded", timeout=600_000):
                     ctx.locator("#btn_next_step").first.click(force=True, timeout=5_000)
                 print(f"[MPC] (#btn_next_step clic) → {page.url}")
-                page.wait_for_timeout(2_000)
+                page.wait_for_timeout(1_000)
                 return
             except Exception as e:
                 print(f"[MPC] ⚠ btn_next_step clic: {e}")
@@ -888,7 +938,7 @@ class MPCUploader:
         except Exception as e:
             print(f"[MPC] ⚠ __doPostBack: {e}")
 
-        page.wait_for_timeout(2_000)
+        page.wait_for_timeout(1_000)
 
     # ------------------------------------------------------------------
     # UPLOAD ET PLACEMENT DANS UN SLOT (IFRAME)
@@ -912,7 +962,7 @@ class MPCUploader:
         except Exception as e:
             print(f"[MPC] Erreur upload endos global : {e}")
             return
-        page.wait_for_timeout(1_000)
+        page.wait_for_timeout(200)
         self._wait_upload_complete(frame, page)
         self._wait_spinner(frame, timeout=15_000)
 
@@ -985,14 +1035,14 @@ class MPCUploader:
 
     def _wait_upload_complete(self, frame, page, timeout: int = 30_000) -> None:
         """Attend que oDesignImage.UploadStatus ne soit plus 'Uploading'."""
-        steps = max(1, timeout // 500)
+        steps = max(1, timeout // 100)
         for _ in range(steps):
             try:
                 if not frame.evaluate("() => oDesignImage.UploadStatus === 'Uploading'"):
                     return
             except Exception:
                 return
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(100)
 
     def _apply_drag_photo(self, frame, page, slot_index: int, pid: str) -> None:
         """Assigne pid au slot via PageLayout.prototype.applyDragPhoto (approche mpc-autofill)."""

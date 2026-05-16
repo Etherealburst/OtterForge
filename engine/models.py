@@ -1,7 +1,7 @@
 """
 engine/models.py
 ----------------
-Modèles de données de base pour MTG Print Factory.
+Modèles de données de base pour OtterForge.
 """
 
 

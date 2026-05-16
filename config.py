@@ -1,7 +1,7 @@
 """
 config.py
 ---------
-Constantes globales de MTG Print Factory.
+Constantes globales de OtterForge.
 Importez ce fichier dans n'importe quel module pour accéder aux paramètres.
 """
 
