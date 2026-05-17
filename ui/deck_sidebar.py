@@ -204,6 +204,8 @@ class DeckSidebar(ctk.CTkFrame):
     def _inspect(self, card) -> None:
         if hasattr(self.app, "inspector"):
             self.app.inspector.show_card(card)
+        if hasattr(self.app, "workspace"):
+            self.app.workspace.scroll_to_card(card)
 
     def _change_count(self, card, delta: int) -> None:
         new_count = card.count + delta

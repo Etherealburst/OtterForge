@@ -5,6 +5,7 @@ Canvas principal de l'application.
 """
 
 import os
+import webbrowser
 import queue
 import tkinter as tk
 import threading
@@ -518,6 +519,14 @@ class Workspace(ctk.CTkFrame):
         self._scroll_to_canvas_pos(info["x"], info["y"])
         self._highlight_card(item_id, info)
 
+    def scroll_to_card(self, card) -> None:
+        """Scrolle le workspace pour rendre la carte visible, puis la met en surbrillance."""
+        for item_id, info in self.canvas_items.items():
+            if info["card"] is card:
+                self._scroll_to_canvas_pos(info["x"], info["y"])
+                self._highlight_card(item_id, info)
+                return
+
     def _scroll_to_canvas_pos(self, cx: int, cy: int) -> None:
         """Scrolle le canvas pour centrer (cx, cy) verticalement."""
         sr = self.canvas.cget("scrollregion")
@@ -831,15 +840,18 @@ class Workspace(ctk.CTkFrame):
                 fn()
             return _
 
+        card = self.canvas_items[found]["card"]
         font = ctk.CTkFont(size=13)
-        kw = dict(font=font, width=160, height=32, anchor="w")
-        ctk.CTkButton(frame, text="  Remove",        command=_cmd(self._delete_selected),        **kw).pack(padx=6, pady=(6, 2))
-        ctk.CTkButton(frame, text="  +1",            command=_cmd(lambda: self._modify_qty(1)),  **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  -1",            command=_cmd(lambda: self._modify_qty(-1)), **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Open file",     command=_cmd(self._open_card_file),         **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Change image",  command=_cmd(self._change_card_image),      **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Set Card Back", command=_cmd(self._set_card_back),          **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Export image",  command=_cmd(self._export_card_image),      **kw).pack(padx=6, pady=(2, 6))
+        kw = dict(font=font, width=170, height=32, anchor="w")
+        ctk.CTkButton(frame, text="  Inspecter",         command=_cmd(lambda: self._inspect_card(card)),     **kw).pack(padx=6, pady=(6, 2))
+        ctk.CTkButton(frame, text="  +1 copie",          command=_cmd(lambda: self._modify_qty(1)),          **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  -1 copie",          command=_cmd(lambda: self._modify_qty(-1)),         **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Supprimer",         command=_cmd(self._delete_selected),                **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Voir sur Scryfall", command=_cmd(lambda: self._open_on_scryfall(card)), **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Ouvrir le fichier", command=_cmd(self._open_card_file),                 **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Changer l'image",   command=_cmd(self._change_card_image),              **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Choisir l'endos",   command=_cmd(self._set_card_back),                  **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Exporter l'image",  command=_cmd(self._export_card_image),              **kw).pack(padx=6, pady=(2, 6))
 
         self._context_menu = popup
 
@@ -856,6 +868,14 @@ class Workspace(ctk.CTkFrame):
         if self._context_menu:
             self._context_menu.destroy()
             self._context_menu = None
+
+    def _inspect_card(self, card) -> None:
+        if hasattr(self.app, "inspector"):
+            self.app.inspector.show_card(card)
+
+    def _open_on_scryfall(self, card) -> None:
+        query = card.name.replace(" // ", " ").replace(" ", "+")
+        webbrowser.open(f"https://scryfall.com/search?q={query}&unique=art")
 
     def _delete_selected(self) -> None:
         if self.selected_item is None:

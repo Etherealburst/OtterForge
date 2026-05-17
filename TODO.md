@@ -127,11 +127,12 @@
 
 ### Import TXT → Workspace
 
-- [ ] **Paralléliser les téléchargements Scryfall**
+- [x] **Paralléliser les téléchargements Scryfall**
   Actuellement `batch_importer.import_txt()` traite les cartes une par une (séquentiel).
   Refactorer avec `concurrent.futures.ThreadPoolExecutor(max_workers=5)` pour lancer
   jusqu'à 5 téléchargements simultanément (respecter la limite Scryfall : 10 req/s).
   Conserver le `progress_callback` en thread-safe avec un `threading.Lock` sur le compteur.
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Paralléliser l'upscaling Real-ESRGAN**
   `upscaler.upscale_to_1200dpi()` lance un subprocess bloquant par carte.
@@ -266,12 +267,14 @@
   Ajouter une légère surbrillance (outline 1px blanc/orange) au `<Enter>` sur chaque image.
   -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Clic droit sur une carte → menu contextuel**
+- [x] **Clic droit sur une carte → menu contextuel**
   Menu avec options : Inspecter, +1 copie, −1 copie, Supprimer, Voir sur Scryfall (ouvre browser).
+  -> Complété le 2026-05-17 (session auto) — menu traduit FR + Inspecter + Scryfall ajoutés
 
-- [ ] **Scroll to card depuis la sidebar**
+- [x] **Scroll to card depuis la sidebar**
   Quand on clique sur une carte dans la `DeckSidebar`, scroller le workspace
   pour que la carte cliquée soit visible (centrer si possible).
+  -> Complété le 2026-05-17 (session auto)
 
 ---
 
