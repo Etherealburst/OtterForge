@@ -12,6 +12,7 @@ sont toujours faites via self.after() — seule méthode thread-safe avec Tkinte
 import os
 import re
 import glob
+import json
 import zipfile
 import threading
 import customtkinter as ctk
@@ -25,6 +26,9 @@ from ui.card_search import CardSearch
 from ui.card_inspector import CardInspectorPanel
 from ui.deck_tabs import DeckTabs
 from ui.card_back_picker import CardBackPickerDialog
+from ui.dialogs.import_confirm_dialog import ImportConfirmDialog
+from ui.dialogs.export_dialog import ExportModeDialog
+from ui.dialogs.mpc_upload_dialog import MPCUploadDialog
 
 from engine.deck_manager import DeckManager
 from engine.models import Card
@@ -66,6 +70,12 @@ class OtterForgeApp(ctk.CTk):
 
         # Verrou pour éviter les recherches simultanées
         self._search_lock = threading.Lock()
+
+        # Flag upload MPC en cours (vérifié à la fermeture)
+        self._upload_in_progress = False
+
+        # Préférences utilisateur persistées (MPC dialog, etc.)
+        self._user_config = self._load_user_config()
 
         # Image d'endos — restaurée depuis le deck actif s'il en a une
         _active = self.deck_manager.active_deck()
@@ -149,19 +159,23 @@ class OtterForgeApp(ctk.CTk):
 
         label = parsed.get("name") or f"s:{parsed.get('set')} cn:{parsed.get('collector_number')}"
         self.statusbar.show_indeterminate(f"Searching: {label}...")
-        self.search.add_btn.configure(state="disabled")
+        self.search.add_btn.configure(state="disabled", text="...")
+
+        # Capturer l'index du deck actif maintenant pour le thread (évite la race condition)
+        target_deck_index = self.deck_manager.active_index
 
         thread = threading.Thread(
             target=self._search_worker,
-            args=(parsed,),
+            args=(parsed, target_deck_index),
             daemon=True,
         )
         thread.start()
 
-    def _search_worker(self, parsed: dict) -> None:
+    def _search_worker(self, parsed: dict, target_deck_index: int = 0) -> None:
         """
         Exécuté dans un thread séparé.
         parsed : dict issu de batch_importer.parse_line() avec clés name/set/collector_number/count.
+        target_deck_index : index du deck actif au moment du clic (évite la race condition).
         NE PAS modifier de widgets directement ici — utiliser self.after().
         """
         try:
@@ -227,7 +241,7 @@ class OtterForgeApp(ctk.CTk):
             if len(final_paths) > 1:
                 card.back_image_path = final_paths[1]
 
-            self.after(0, self._on_search_success, [card])
+            self.after(0, self._on_search_success, [card], target_deck_index)
 
         except Exception as e:
             self.after(0, self._on_search_error, f"Erreur : {e}")
@@ -235,26 +249,30 @@ class OtterForgeApp(ctk.CTk):
         finally:
             self._search_lock.release()
 
-    def _on_search_success(self, cards: list) -> None:
+    def _on_search_success(self, cards: list, target_deck_index: int = 0) -> None:
         """Appelé dans le thread UI après une recherche et upscaling réussis."""
         for card in cards:
-            self.deck_manager.add_card(card)
-        deck = self.deck_manager.active_deck()
-        if deck:
-            self.workspace.load_cards(deck.cards, scroll_to_bottom=True)
-        self.sidebar.refresh()
+            self.deck_manager.add_card(card, deck_index=target_deck_index)
+
+        # N'actualiser le workspace/sidebar que si le deck cible est toujours affiché
+        if target_deck_index < len(self.deck_manager.decks):
+            target_deck = self.deck_manager.decks[target_deck_index]
+            if self.deck_manager.active_index == target_deck_index:
+                self.workspace.load_cards(target_deck.cards, scroll_to_bottom=True)
+                self.sidebar.refresh()
+            self.deck_manager.save_deck_at(target_deck, self._deck_path(target_deck.name))
+
         self.inspector.refresh_stats()
-        self._auto_save()
         names = " + ".join(c.name for c in cards)
         self.statusbar.hide_progress()
         self.statusbar.set_status(f"Ajouté : {names}")
-        self.search.add_btn.configure(state="normal")
+        self.search.add_btn.configure(state="normal", text="Add to Deck")
 
     def _on_search_error(self, message: str) -> None:
         """Appelé dans le thread UI en cas d'erreur de recherche."""
         self.statusbar.hide_progress()
         self.statusbar.set_status(message)
-        self.search.add_btn.configure(state="normal")
+        self.search.add_btn.configure(state="normal", text="Add to Deck")
         messagebox.showwarning("Erreur", message)
 
     # ======================================================================
@@ -267,7 +285,7 @@ class OtterForgeApp(ctk.CTk):
         if not deck:
             return
 
-        if not messagebox.askyesno("Save Deck", "Do you want to save your deck?"):
+        if not messagebox.askyesno("Sauvegarder", "Sauvegarder le deck actif ?"):
             return
 
         path = filedialog.asksaveasfilename(
@@ -321,7 +339,9 @@ class OtterForgeApp(ctk.CTk):
         except Exception:
             parsed = []
 
-        if not self._confirm_import_dialog(path, len(parsed)):
+        dialog = ImportConfirmDialog(self, path, len(parsed), self.upscaler.is_available())
+        self.wait_window(dialog)
+        if not dialog.result:
             return
 
         self.statusbar.set_status("Import TXT en cours...")
@@ -332,96 +352,6 @@ class OtterForgeApp(ctk.CTk):
             daemon=True,
         )
         thread.start()
-
-    def _confirm_import_dialog(self, path: str, card_count: int) -> bool:
-        """Affiche une boîte de dialogue de confirmation avant l'import. Retourne True si confirmé."""
-        result = {"ok": False}
-
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Import Deck")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.focus_set()
-        dialog.transient(self)
-
-        # Centrage par rapport à la fenêtre principale
-        self.update_idletasks()
-        px, py = self.winfo_x(), self.winfo_y()
-        pw, ph = self.winfo_width(), self.winfo_height()
-        dw, dh = 420, 260
-        dialog.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
-
-        # --- Contenu ---
-        padx = 28
-
-        ctk.CTkLabel(
-            dialog, text="Are you sure you want to import this deck?",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            wraplength=360,
-        ).pack(pady=(24, 16))
-
-        # Infos fichier + nombre de cartes
-        fname = os.path.basename(path)
-        ctk.CTkLabel(
-            dialog, text=f"File : {fname}",
-            font=ctk.CTkFont(size=11), text_color="#5a5060",
-        ).pack(padx=padx)
-
-        ctk.CTkLabel(
-            dialog, text=f"Cards found : {card_count} entr{'y' if card_count == 1 else 'ies'}",
-            font=ctk.CTkFont(size=12),
-        ).pack(padx=padx, pady=(6, 0))
-
-        # Estimation du temps
-        if card_count > 0:
-            upscaler_on = self.upscaler.is_available()
-            secs_per_card = 12 if upscaler_on else 2
-            total_secs = card_count * secs_per_card
-            mins, secs = divmod(total_secs, 60)
-            if mins > 0:
-                time_str = f"~{mins} min {secs} sec" if secs else f"~{mins} min"
-            else:
-                time_str = f"~{total_secs} sec"
-            quality = "with upscaling to 1200 DPI" if upscaler_on else "download only, no upscaling"
-            eta_text = f"Estimated time : {time_str}  ({quality})"
-        else:
-            eta_text = "No cards detected in this file."
-
-        ctk.CTkLabel(
-            dialog, text=eta_text,
-            font=ctk.CTkFont(size=11), text_color="#5a5060",
-            wraplength=360,
-        ).pack(padx=padx, pady=(4, 20))
-
-        # Boutons
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=(0, 20))
-
-        def on_yes():
-            result["ok"] = True
-            dialog.destroy()
-
-        def on_no():
-            dialog.destroy()
-
-        ctk.CTkButton(
-            btn_frame, text="Yes", width=110, height=36,
-            font=ctk.CTkFont(size=13),
-            command=on_yes,
-        ).pack(side="left", padx=10)
-
-        ctk.CTkButton(
-            btn_frame, text="No", width=110, height=36,
-            font=ctk.CTkFont(size=13),
-            fg_color="#581e10", hover_color="#3a1a10",
-            command=on_no,
-        ).pack(side="left", padx=10)
-
-        dialog.bind("<Return>", lambda e: on_yes())
-        dialog.bind("<Escape>", lambda e: on_no())
-
-        self.wait_window(dialog)
-        return result["ok"]
 
     def _import_txt_worker(self, path: str) -> None:
         """Exécuté dans un thread séparé pour l'import TXT batch."""
@@ -457,10 +387,10 @@ class OtterForgeApp(ctk.CTk):
             return
 
         self._auto_save()
-        msg = f"{len(cards)} card(s) imported successfully."
+        msg = f"{len(cards)} carte(s) importée(s) avec succès."
         if skipped:
-            msg += f"\n{len(skipped)} card(s) skipped."
-        messagebox.showinfo("Import completed", msg)
+            msg += f"\n{len(skipped)} carte(s) ignorée(s)."
+        messagebox.showinfo("Import terminé", msg)
 
         if skipped:
             self._show_skipped_report(skipped)
@@ -515,7 +445,9 @@ class OtterForgeApp(ctk.CTk):
             self.statusbar.set_status("Aucune carte à exporter")
             return
 
-        export_mode = self._ask_export_mode()
+        dlg = ExportModeDialog(self)
+        self.wait_window(dlg)
+        export_mode = dlg.result
         if not export_mode:
             return
 
@@ -527,46 +459,6 @@ class OtterForgeApp(ctk.CTk):
             daemon=True,
         )
         thread.start()
-
-    def _ask_export_mode(self) -> str | None:
-        """
-        Affiche un dialog demandant le mode d'export.
-        Retourne 'sheets', 'zip', 'both', ou None si annulé.
-        """
-        result = {"mode": None}
-
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Export Print Sheets")
-        dialog.geometry("300x200")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.focus_set()
-
-        ctk.CTkLabel(
-            dialog,
-            text="What do you want to export?",
-            font=ctk.CTkFont(size=13),
-        ).pack(pady=(20, 16))
-
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=4)
-
-        def choose(mode):
-            result["mode"] = mode
-            dialog.destroy()
-
-        ctk.CTkButton(btn_frame, text="Sheets only", width=200,
-                      command=lambda: choose("sheets")).pack(pady=4)
-        ctk.CTkButton(btn_frame, text="ZIP only", width=200,
-                      command=lambda: choose("zip")).pack(pady=4)
-        ctk.CTkButton(btn_frame, text="Both", width=200,
-                      command=lambda: choose("both")).pack(pady=4)
-
-        ctk.CTkButton(dialog, text="Cancel", fg_color="#581e10", hover_color="#3a1a10",
-                      command=dialog.destroy).pack(pady=(8, 0))
-
-        self.wait_window(dialog)
-        return result["mode"]
 
     def _export_worker(self, cards: list, deck_name: str, mode: str) -> None:
         """Exécuté dans un thread séparé. mode = 'sheets' | 'zip' | 'both'."""
@@ -593,13 +485,13 @@ class OtterForgeApp(ctk.CTk):
         self.statusbar.set_status(f"{len(sheets)} feuille(s) générée(s) → {output_dir}")
 
         if mode == "sheets":
-            msg = f"{len(sheets)} sheet(s) generated in:\n{output_dir}"
+            msg = f"{len(sheets)} feuille(s) générée(s) dans :\n{output_dir}"
         elif mode == "zip":
-            msg = f"ZIP ready for MPC:\n{zip_path}"
+            msg = f"ZIP prêt pour MPC :\n{zip_path}"
         else:
-            msg = f"{len(sheets)} sheet(s) generated in:\n{output_dir}\n\nZIP ready for MPC:\n{zip_path}"
+            msg = f"{len(sheets)} feuille(s) générée(s) dans :\n{output_dir}\n\nZIP prêt pour MPC :\n{zip_path}"
 
-        messagebox.showinfo("Export completed", msg)
+        messagebox.showinfo("Export terminé", msg)
 
     # ======================================================================
     # TOOLBAR — CHOOSE CARD BACK
@@ -643,134 +535,23 @@ class OtterForgeApp(ctk.CTk):
             getattr(c, "back_image_path", None) or "_face0" in c.image_path
             for c in deck.cards
         )
-        config = {"headless": False, "stock": "S30", "login": False,
-                  "upload_backs": has_backs, "confirmed": False}
-
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Upload to MPC")
-        dialog.geometry("440x550")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.focus_set()
-
-        ctk.CTkLabel(
-            dialog,
-            text="Upload to MakePlayingCards.com",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(pady=(16, 4))
-
-        ctk.CTkLabel(
-            dialog,
-            text=f"Deck : {deck.name}   •   {total_slots} carte(s)",
-            font=ctk.CTkFont(size=11),
-            text_color="#5a5060",
-        ).pack(pady=(0, 6))
-
-        # --- Visualisation des seuils MPC ---
-        self._add_mpc_threshold_bar(dialog, total_slots, mpc_qty)
-
-        # --- Temps estimé ---
-        _est_fronts = total_slots * 35
-        _est_backs = total_slots * 20 if has_backs else 0
-        _est_total_min = max(1, (_est_fronts + _est_backs + 180) // 60)
-        _eta_parts = [f"fronts ~{max(1, _est_fronts // 60)} min"]
-        if has_backs:
-            _eta_parts.append(f"backs ~{max(1, _est_backs // 60)} min")
-        ctk.CTkLabel(
-            dialog,
-            text=f"Temps estimé : ~{_est_total_min} min  ({' + '.join(_eta_parts)})",
-            font=ctk.CTkFont(size=10),
-            text_color="gray60",
-        ).pack(pady=(0, 6))
-
-        # Avertissement slots vides
-        if empty_slots > 0:
-            warn_frame = ctk.CTkFrame(dialog, fg_color="#381818", corner_radius=6)
-            warn_frame.pack(padx=20, fill="x", pady=(0, 8))
-            ctk.CTkLabel(
-                warn_frame,
-                text=f"⚠  {empty_slots} slot(s) vide(s) — ils apparaîtront à la fin de la commande MPC.",
-                font=ctk.CTkFont(size=10),
-                text_color="#c4bfb8",
-                wraplength=380,
-                justify="left",
-            ).pack(padx=10, pady=6)
-
-        # Choix du stock
-        stock_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        stock_frame.pack(padx=24, anchor="w", pady=(0, 6))
-        ctk.CTkLabel(stock_frame, text="Card stock :", font=ctk.CTkFont(size=11)).pack(
-            side="left", padx=(0, 8)
+        mpc_prefs = self._user_config.get("mpc", {})
+        mpc_dlg = MPCUploadDialog(
+            self,
+            deck_name=deck.name,
+            total_slots=total_slots,
+            mpc_qty=mpc_qty,
+            has_backs=has_backs,
+            deck_back_image=self.deck_back_image,
+            mpc_prefs=mpc_prefs,
         )
-        stock_var = ctk.StringVar(value="S30")
-        for s in ("S30", "S33"):
-            ctk.CTkRadioButton(
-                stock_frame, text=s, variable=stock_var, value=s,
-                font=ctk.CTkFont(size=11),
-            ).pack(side="left", padx=6)
-
-        # Connexion MPC
-        login_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            dialog,
-            text="Se connecter à MPC (2 min pour login, optionnel)",
-            variable=login_var,
-            font=ctk.CTkFont(size=11),
-        ).pack(padx=24, anchor="w", pady=(0, 4))
-
-        # Mode navigateur
-        headless_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            dialog,
-            text="Mode arrière-plan (navigateur invisible)",
-            variable=headless_var,
-            font=ctk.CTkFont(size=11),
-        ).pack(padx=24, anchor="w", pady=(0, 6))
-
-        # Upload backs
-        back_label = ""
-        if self.deck_back_image:
-            back_label = f" ({os.path.basename(self.deck_back_image)})"
-        elif not has_backs:
-            back_label = " (aucun endos détecté)"
-        upload_backs_var = ctk.BooleanVar(value=has_backs)
-        ctk.CTkCheckBox(
-            dialog,
-            text=f"Uploader les endos{back_label}",
-            variable=upload_backs_var,
-            state="normal" if has_backs else "disabled",
-            font=ctk.CTkFont(size=11),
-        ).pack(padx=24, anchor="w", pady=(0, 12))
-
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack()
-
-        def on_start():
-            if empty_slots > 0:
-                if not messagebox.askyesno(
-                    "Slots vides",
-                    f"Votre deck contient {total_slots} carte(s), mais MPC requiert {mpc_qty} slots.\n\n"
-                    f"{empty_slots} slot(s) resteront vides à la fin de la commande.\n\n"
-                    "Continuer quand même ?",
-                    parent=dialog,
-                ):
-                    return
-            config["headless"] = headless_var.get()
-            config["stock"] = stock_var.get()
-            config["login"] = login_var.get()
-            config["upload_backs"] = upload_backs_var.get()
-            config["confirmed"] = True
-            dialog.destroy()
-
-        ctk.CTkButton(btn_frame, text="Démarrer l'upload", width=170,
-                      command=on_start).pack(side="left", padx=6)
-        ctk.CTkButton(btn_frame, text="Annuler", width=100,
-                      fg_color="#581e10", hover_color="#3a1a10",
-                      command=dialog.destroy).pack(side="left", padx=6)
-
-        self.wait_window(dialog)
-        if not config["confirmed"]:
+        self.wait_window(mpc_dlg)
+        config = mpc_dlg.result
+        if not config:
             return
+
+        self._user_config["mpc"] = {k: config[k] for k in ("headless", "stock", "login", "upload_backs")}
+        self._save_user_config()
 
         cards = list(deck.cards)
         self.statusbar.show_progress()
@@ -783,92 +564,12 @@ class OtterForgeApp(ctk.CTk):
             daemon=True,
         ).start()
 
-    def _add_mpc_threshold_bar(self, parent, total: int, mpc_qty: int) -> None:
-        """Affiche la barre visuelle des seuils MPC dans le dialog."""
-        import tkinter as tk
-
-        frame = ctk.CTkFrame(parent, fg_color="#28252e", corner_radius=8)
-        frame.pack(padx=20, fill="x", pady=(0, 8))
-
-        ctk.CTkLabel(
-            frame,
-            text="Seuils MPC (lots de 18)",
-            font=ctk.CTkFont(size=10),
-            text_color="#5a5060",
-        ).pack(anchor="w", padx=12, pady=(8, 2))
-
-        # Canvas pour la barre de progression
-        canvas = tk.Canvas(frame, height=52, bg="#28252e", highlightthickness=0)
-        canvas.pack(fill="x", padx=12, pady=(0, 4))
-
-        canvas.update_idletasks()
-        W = canvas.winfo_width() or 396
-
-        # Afficher 5 seuils centrés sur le batch actuel
-        current_tier = mpc_qty // 18
-        first_tier = max(1, current_tier - 2)
-        tiers = list(range(first_tier, first_tier + 6))
-        thresholds = [t * 18 for t in tiers]
-        lo, hi = thresholds[0] - 18, thresholds[-1]
-
-        pad_x = 10
-        bar_w = W - pad_x * 2
-        bar_y, bar_h = 20, 14
-
-        def x_of(val):
-            return pad_x + int(bar_w * (val - lo) / (hi - lo))
-
-        # Fond gris
-        canvas.create_rectangle(x_of(lo), bar_y, x_of(hi), bar_y + bar_h,
-                                 fill="#34303e", outline="")
-
-        # Portion remplie (cartes du deck)
-        canvas.create_rectangle(x_of(lo), bar_y, x_of(min(total, hi)), bar_y + bar_h,
-                                 fill="#2D6A4F", outline="")
-
-        # Portion vide dans le batch actuel (slots non remplis)
-        if total < mpc_qty:
-            canvas.create_rectangle(x_of(total), bar_y, x_of(mpc_qty), bar_y + bar_h,
-                                     fill="#8B3A00", outline="")
-
-        # Marqueurs de seuil + labels
-        for t in thresholds:
-            x = x_of(t)
-            is_batch = (t == mpc_qty)
-            color = "#E8A838" if is_batch else "#606060"
-            canvas.create_line(x, bar_y - 4, x, bar_y + bar_h + 4, fill=color, width=1)
-            canvas.create_text(x, bar_y + bar_h + 12, text=str(t),
-                                fill="#E8A838" if is_batch else "gray60",
-                                font=("Arial", 8, "bold" if is_batch else "normal"))
-
-        # Marqueur de position actuelle du deck
-        if lo < total <= hi:
-            xc = x_of(total)
-            canvas.create_line(xc, bar_y - 6, xc, bar_y + bar_h + 6,
-                                fill="white", width=2)
-            canvas.create_text(xc, bar_y - 11, text=str(total),
-                                fill="white", font=("Arial", 8, "bold"))
-
-        # Légende sous la barre
-        empty = mpc_qty - total
-        if empty == 0:
-            legend = f"Batch parfait — {mpc_qty} slots, 0 vide"
-            color = "#2D6A4F"
-        else:
-            legend = f"Batch : {mpc_qty} slots   •   {total} remplis   •   {empty} vides"
-            color = "#E8A838"
-
-        ctk.CTkLabel(
-            frame,
-            text=legend,
-            font=ctk.CTkFont(size=10),
-            text_color=color,
-        ).pack(pady=(0, 8))
-
     def _mpc_upload_worker(self, cards: list, headless: bool, stock: str,
                            login: bool, total: int, back_image: str | None,
                            upload_backs: bool = True) -> None:
         """Thread : lance l'automation MPC et met à jour la progress bar."""
+        self._upload_in_progress = True
+
         def progress(current: int, total_: int, label: str) -> None:
             self.after(0, self.statusbar.set_status, label)
             if total_ > 0:
@@ -892,6 +593,7 @@ class OtterForgeApp(ctk.CTk):
                 self.after(0, self.statusbar.hide_progress)
 
     def _on_mpc_upload_done(self) -> None:
+        self._upload_in_progress = False
         self.statusbar.hide_progress()
         self.statusbar.set_status("Upload MPC terminé")
 
@@ -953,6 +655,12 @@ class OtterForgeApp(ctk.CTk):
 
     def on_close(self) -> None:
         """Gère la fermeture propre de l'application."""
+        if self._upload_in_progress:
+            if not messagebox.askyesno(
+                "Upload en cours",
+                "Un upload MPC est en cours.\nFermer quand même ? L'upload sera interrompu.",
+            ):
+                return
         if not messagebox.askyesno("Fermer OtterForge", "Fermer OtterForge ?"):
             return
         try:
@@ -963,3 +671,23 @@ class OtterForgeApp(ctk.CTk):
             self.destroy()
         except Exception:
             pass
+
+    # ======================================================================
+    # PERSISTANCE DE LA CONFIGURATION UTILISATEUR
+    # ======================================================================
+
+    _CONFIG_USER_PATH = "config_user.json"
+
+    def _load_user_config(self) -> dict:
+        try:
+            with open(self._CONFIG_USER_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_user_config(self) -> None:
+        try:
+            with open(self._CONFIG_USER_PATH, "w", encoding="utf-8") as f:
+                json.dump(self._user_config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[App] Impossible de sauvegarder config_user.json : {e}")

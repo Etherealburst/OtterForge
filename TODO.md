@@ -8,34 +8,40 @@
 
 ### UI / UX
 
-- [ ] **Tooltip sur noms tronqués (sidebar)**
+- [x] **Tooltip sur noms tronqués (sidebar)**
   Actuellement les noms > 17 chars sont coupés avec "…" sans moyen de voir le nom complet.
   Ajouter un tooltip `<Enter>` / `<Leave>` sur chaque `name_lbl` dans `DeckSidebar._build_row()`.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Mémoriser les derniers réglages MPC**
+- [x] **Mémoriser les derniers réglages MPC**
   Le dialog Upload MPC (`app.py:upload_to_mpc`) repart à zéro à chaque ouverture (stock S30, headless False, etc.).
   Persister ces choix dans un fichier `config_user.json` ou via `deck.back_image`.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Confirmation fermeture pendant un upload**
+- [x] **Confirmation fermeture pendant un upload**
   `on_close()` ne vérifie pas si un upload MPC est en cours (`_mpc_upload_worker` tourne).
   Ajouter un flag `self._upload_in_progress` et avertir l'utilisateur si True.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Indicateur visuel de recherche dans CardSearch**
+- [x] **Indicateur visuel de recherche dans CardSearch**
   Quand une recherche est en cours le bouton est juste disabled. Ajouter une animation spinner
   ou changer le texte du bouton en "..." pendant `statusbar.show_indeterminate`.
+  -> Complété le 2026-05-17 (session auto)
 
 ### Code
 
-- [ ] **Éclater `app.py` (966 lignes)**
+- [x] **Éclater `app.py` (966 lignes)**
   Les dialogs MPC, export et import pourraient devenir des classes dans `ui/dialogs/` :
   - `ui/dialogs/mpc_upload_dialog.py`
   - `ui/dialogs/export_dialog.py`
   - `ui/dialogs/import_confirm_dialog.py`
   `app.py` ne garderait que l'orchestration.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **`_add_mpc_threshold_bar` → widget dédié**
+- [x] **`_add_mpc_threshold_bar` → widget dédié**
   Actuellement une méthode de 80 lignes dans `app.py`. Extraire en `ui/mpc_threshold_bar.py`
   (classe `MPCThresholdBar(ctk.CTkFrame)`).
+  -> Complété le 2026-05-17 (session auto)
 
 ---
 
@@ -43,13 +49,15 @@
 
 ### Fonctionnalités
 
-- [ ] **Historique de recherche dans CardSearch**
+- [x] **Historique de recherche dans CardSearch**
   Stocker les 20 dernières requêtes dans une liste et les proposer via un dropdown
   au focus du champ texte.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Dupliquer un deck**
+- [x] **Dupliquer un deck**
   Ajouter option "Dupliquer" dans le menu clic-droit onglet deck (`DeckTabs`).
   Copie profonde du deck + nouveau nom `"NomDeck (copie)"`.
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Upscale batch du cache existant**
   Bouton dans la toolbar "Upscale cache" qui parcourt `cache/scryfall/*.png`
@@ -70,14 +78,16 @@
 
 ### Qualité
 
-- [ ] **Uniformiser la langue**
+- [x] **Uniformiser la langue**
   Plusieurs dialogs sont en anglais ("Import completed", "Do you want to save your deck?", "Export completed").
   Choisir et appliquer une langue unique (FR ou EN) à toute l'interface.
+  -> Complété le 2026-05-17 (session auto) — uniformisé en français
 
-- [ ] **Race condition deck switch pendant recherche**
+- [x] **Race condition deck switch pendant recherche**
   Si l'utilisateur change d'onglet pendant `_search_worker`, la carte est ajoutée
   au deck qui était actif au moment du clic, pas celui visible à la fin de la recherche.
   Capturer `self.deck_manager.active_index` au début de `_search_worker` et l'utiliser dans `_on_search_success`.
+  -> Complété le 2026-05-17 (session auto)
 
 ---
 

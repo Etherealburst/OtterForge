@@ -5,7 +5,41 @@ Panneau latéral gauche affichant la liste des cartes du deck actif.
 Comprend un filtre rapide par nom.
 """
 
+import tkinter as tk
 import customtkinter as ctk
+
+
+class _Tooltip:
+    """Petit popup qui affiche le texte complet au survol d'un widget."""
+
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self._widget = widget
+        self._text = text
+        self._tip: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+
+    def _show(self, event: tk.Event) -> None:
+        if self._tip:
+            return
+        x = self._widget.winfo_rootx() + 10
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+        self._tip = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        lbl = tk.Label(
+            tw, text=self._text,
+            background="#2a2730", foreground="#f0ece4",
+            relief="solid", borderwidth=1,
+            font=("Segoe UI", 10),
+            padx=6, pady=3,
+        )
+        lbl.pack()
+
+    def _hide(self, event: tk.Event) -> None:
+        if self._tip:
+            self._tip.destroy()
+            self._tip = None
 
 
 class DeckSidebar(ctk.CTkFrame):
@@ -121,7 +155,8 @@ class DeckSidebar(ctk.CTkFrame):
         # Clic sur la ligne → envoie la carte à l'inspecteur
         row.bind("<Button-1>", lambda e, c=card: self._inspect(c))
 
-        name = card.name if len(card.name) <= 17 else card.name[:16] + "…"
+        truncated = len(card.name) > 17
+        name = card.name[:16] + "…" if truncated else card.name
         name_lbl = ctk.CTkLabel(
             row, text=name, anchor="w",
             font=ctk.CTkFont(size=11),
@@ -130,6 +165,8 @@ class DeckSidebar(ctk.CTkFrame):
         )
         name_lbl.pack(side="left", padx=(8, 2), pady=5, expand=True, fill="x")
         name_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
+        if truncated:
+            _Tooltip(name_lbl, card.name)
 
         ctrl = ctk.CTkFrame(row, fg_color="transparent")
         ctrl.pack(side="right", padx=(0, 4))

@@ -5,6 +5,7 @@ Onglets de navigation entre les decks ouverts.
 Affiche au maximum MAX_VISIBLE onglets avec flèches gauche/droite pour défiler.
 """
 
+import copy
 import tkinter as tk
 import customtkinter as ctk
 
@@ -164,6 +165,12 @@ class DeckTabs(ctk.CTkFrame):
         ).pack(padx=6, pady=(6, 2))
 
         ctk.CTkButton(
+            frame, text="  Dupliquer",
+            command=_cmd(lambda: self._duplicate_deck(index)),
+            **kw,
+        ).pack(padx=6, pady=(2, 2))
+
+        ctk.CTkButton(
             frame, text="  Supprimer",
             fg_color="#581e10", hover_color="#922b21",
             command=_cmd(lambda: self._delete_deck(index)),
@@ -272,6 +279,23 @@ class DeckTabs(ctk.CTkFrame):
     # ------------------------------------------------------------------
     # CRÉER UN NOUVEAU DECK
     # ------------------------------------------------------------------
+
+    def _duplicate_deck(self, index: int) -> None:
+        """Crée une copie profonde du deck à l'index donné."""
+        from engine.deck_manager import Deck
+        source = self.master.deck_manager.decks[index]
+        new_deck = Deck(f"{source.name} (copie)")
+        new_deck.cards = copy.deepcopy(source.cards)
+        new_deck.back_image = source.back_image
+        self.master.deck_manager.decks.append(new_deck)
+        new_index = len(self.master.deck_manager.decks) - 1
+        self.master.deck_manager.set_active(new_index)
+        self.master.deck_manager.save_deck_at(new_deck, self.master._deck_path(new_deck.name))
+        self._ensure_tab_visible(new_index)
+        self.render()
+        self.master.workspace.load_cards(new_deck.cards)
+        self.master.sidebar.refresh()
+        self.master.statusbar.set_status(f"Deck dupliqué : {new_deck.name}")
 
     def _create_deck_dialog(self) -> None:
         dialog = ctk.CTkToplevel(self)
