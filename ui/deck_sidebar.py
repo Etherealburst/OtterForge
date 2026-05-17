@@ -32,7 +32,7 @@ class _Tooltip:
             background="#3a3548", foreground="#f0ece4",
             relief="solid", borderwidth=1,
             highlightbackground="#c04828", highlightthickness=1,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 20),
             padx=8, pady=4,
         )
         lbl.pack()
@@ -166,8 +166,8 @@ class DeckSidebar(ctk.CTkFrame):
         move_frame.pack(side="left", padx=(4, 0), fill="y")
 
         ctk.CTkButton(
-            move_frame, text="↑", width=16, height=13,
-            font=ctk.CTkFont(size=9),
+            move_frame, text="↑", width=32, height=26,
+            font=ctk.CTkFont(size=18),
             fg_color="transparent", hover_color=arrow_hover,
             text_color=arrow_color,
             state=arrow_state,
@@ -175,8 +175,8 @@ class DeckSidebar(ctk.CTkFrame):
         ).pack(side="top", pady=(2, 0))
 
         ctk.CTkButton(
-            move_frame, text="↓", width=16, height=13,
-            font=ctk.CTkFont(size=9),
+            move_frame, text="↓", width=32, height=26,
+            font=ctk.CTkFont(size=18),
             fg_color="transparent", hover_color=arrow_hover,
             text_color=arrow_color,
             state=arrow_state,

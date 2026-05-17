@@ -95,13 +95,15 @@ class CardInspectorPanel(ctk.CTkFrame):
     def _build_card_pane(self) -> None:
         self._card_pane = ctk.CTkFrame(self, fg_color="transparent")
 
-        # Image — placeholder initial
+        # Image — placeholder initial (cliquable pour zoom)
         self._img_label = ctk.CTkLabel(
             self._card_pane, text="",
             fg_color="#221f28", corner_radius=6,
             width=self._img_size[0], height=self._img_size[1],
+            cursor="hand2",
         )
         self._img_label.pack(padx=12, pady=(4, 8))
+        self._img_label.bind("<Button-1>", lambda e: self._open_zoom_popup())
 
         self._placeholder_text = ctk.CTkLabel(
             self._card_pane,
@@ -291,6 +293,128 @@ class CardInspectorPanel(ctk.CTkFrame):
             return
         self._img_ref = ctk_img
         self._img_label.configure(image=ctk_img, text="", fg_color="transparent")
+
+    def _open_zoom_popup(self) -> None:
+        """Ouvre un popup centré avec la carte agrandie. Clic ou Échap pour fermer."""
+        card = self._current_card
+        if card is None:
+            return
+
+        # Ferme un éventuel popup déjà ouvert
+        if getattr(self, '_zoom_popup', None) is not None:
+            try:
+                self._zoom_popup.destroy()
+            except Exception:
+                pass
+            self._zoom_popup = None
+
+        self.app.update_idletasks()
+        ws = self.app.workspace
+        ws.update_idletasks()
+
+        # CTkToplevel._apply_geometry_scaling scale la TAILLE (logique→physique)
+        # mais laisse la position +X+Y inchangée → passer des pixels physiques.
+        try:
+            from customtkinter import ScalingTracker
+            _s = ScalingTracker.get_window_scaling(self.app)
+        except Exception:
+            _s = 1.0
+
+        # Centre du workspace en pixels physiques
+        cx = ws.winfo_rootx() + ws.winfo_width()  // 2
+        cy = ws.winfo_rooty() + ws.winfo_height() // 2
+
+        # Taille en pixels logiques (CTkToplevel applique _s automatiquement)
+        img_w = 380
+        img_h = int(img_w * _CARD_RATIO)
+
+        # Offset centrage en pixels physiques (taille physique = logique * _s)
+        px = cx - round(img_w * _s) // 2
+        py = cy - round(img_h * _s) // 2
+
+        popup = ctk.CTkToplevel(self.app)
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        popup.geometry(f"{img_w}x{img_h}+{px}+{py}")
+        popup.lift()
+        self._zoom_popup = popup
+
+        def _conditional_close(p):
+            if getattr(self, '_zoom_popup', None) is not p:
+                return
+            try:
+                if p.winfo_exists():
+                    p.destroy()
+            except Exception:
+                pass
+            self._zoom_popup = None
+
+        lbl = ctk.CTkLabel(popup, text="", fg_color="#1c1a20",
+                           width=img_w, height=img_h, corner_radius=8)
+        lbl.pack(fill="both", expand=True)
+
+        close = lambda e=None: _conditional_close(popup)
+        popup.bind("<Button-1>", close)
+        popup.bind("<Escape>", close)
+        lbl.bind("<Button-1>", close)
+
+        # Clic en dehors du popup → fermer. bind_all capte tous les clics de l'app.
+        # _active démarre à False pour ignorer le clic d'ouverture lui-même.
+        _active = [False]
+
+        def _activate():
+            if popup.winfo_exists():
+                _active[0] = True
+
+        def _on_any_click(event):
+            if not _active[0]:
+                return
+            if not popup.winfo_exists():
+                _active[0] = False
+                return
+            if getattr(self, '_zoom_popup', None) is not popup:
+                _active[0] = False
+                return
+            try:
+                x1 = popup.winfo_rootx()
+                y1 = popup.winfo_rooty()
+                x2 = x1 + popup.winfo_width()
+                y2 = y1 + popup.winfo_height()
+                if not (x1 <= event.x_root <= x2 and y1 <= event.y_root <= y2):
+                    _active[0] = False
+                    _conditional_close(popup)
+            except Exception:
+                _active[0] = False
+                _conditional_close(popup)
+
+        self.app.bind_all("<ButtonPress-1>", _on_any_click, add="+")
+        self.after(200, _activate)
+
+        self._zoom_img_ref = None
+
+        def _load():
+            try:
+                path = card.image_path
+                if self._show_back:
+                    back = getattr(card, "back_image_path", None)
+                    if back and os.path.isfile(back):
+                        path = back
+                if path.endswith("_1200dpi.png"):
+                    native = path.replace("_1200dpi.png", ".png")
+                    if os.path.exists(native):
+                        path = native
+                img = Image.open(path).resize((img_w, img_h), Image.LANCZOS)
+                ctk_img = ctk.CTkImage(light_image=img, size=(img_w, img_h))
+                self._zoom_img_ref = ctk_img
+
+                def _apply():
+                    if popup.winfo_exists():
+                        lbl.configure(image=ctk_img, fg_color="transparent")
+                self.after(0, _apply)
+            except Exception:
+                pass
+
+        threading.Thread(target=_load, daemon=True).start()
 
     def refresh_stats(self) -> None:
         """À appeler après chaque modification du deck."""

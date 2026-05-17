@@ -41,7 +41,7 @@ class MPCUploadDialog(ctk.CTkToplevel):
         self.result: dict | None = None
 
         self.title("Upload to MPC")
-        self.geometry("440x550")
+        self.geometry("440x600")
         self.resizable(False, False)
         self.grab_set()
         self.focus_set()
@@ -63,9 +63,9 @@ class MPCUploadDialog(ctk.CTkToplevel):
 
         MPCThresholdBar(self, total_slots, mpc_qty).pack(padx=20, fill="x", pady=(0, 8))
 
-        _est_fronts = total_slots * 35
-        _est_backs = total_slots * 20 if has_backs else 0
-        _est_total_min = max(1, (_est_fronts + _est_backs + 180) // 60)
+        _est_fronts = total_slots * 5
+        _est_backs = total_slots * 3 if has_backs else 0
+        _est_total_min = max(1, (_est_fronts + _est_backs + 60) // 60)
         _eta_parts = [f"fronts ~{max(1, _est_fronts // 60)} min"]
         if has_backs:
             _eta_parts.append(f"backs ~{max(1, _est_backs // 60)} min")
@@ -77,16 +77,28 @@ class MPCUploadDialog(ctk.CTkToplevel):
         ).pack(pady=(0, 6))
 
         if empty_slots > 0:
-            warn_frame = ctk.CTkFrame(self, fg_color="#381818", corner_radius=6)
+            warn_frame = ctk.CTkFrame(self, fg_color="#3d1a1a", corner_radius=6)
             warn_frame.pack(padx=20, fill="x", pady=(0, 8))
             ctk.CTkLabel(
                 warn_frame,
                 text=f"⚠  {empty_slots} slot(s) vide(s) — ils apparaîtront à la fin de la commande MPC.",
-                font=ctk.CTkFont(size=10),
-                text_color="#c4bfb8",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#f5e6e6",
                 wraplength=380,
                 justify="left",
-            ).pack(padx=10, pady=6)
+            ).pack(padx=12, pady=8)
+
+        if not deck_back_image:
+            noback_frame = ctk.CTkFrame(self, fg_color="#162436", corner_radius=6)
+            noback_frame.pack(padx=20, fill="x", pady=(0, 8))
+            ctk.CTkLabel(
+                noback_frame,
+                text="ℹ  No global card back set — the standard MTG card back (MPCFILL) will be automatically downloaded and used for all non-DFC cards.",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#e6f0f8",
+                wraplength=380,
+                justify="left",
+            ).pack(padx=12, pady=8)
 
         # Card stock
         stock_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -139,6 +151,16 @@ class MPCUploadDialog(ctk.CTkToplevel):
         btn_frame.pack()
 
         def on_start():
+            if not deck_back_image:
+                if not messagebox.askyesno(
+                    "No card back — standard fill",
+                    "No global card back is set.\n\n"
+                    "The standard MTG card back (MPCFILL) will be automatically downloaded "
+                    "and used as the back for all non-DFC cards before uploading.\n\n"
+                    "Proceed?",
+                    parent=self,
+                ):
+                    return
             if empty_slots > 0:
                 if not messagebox.askyesno(
                     "Slots vides",

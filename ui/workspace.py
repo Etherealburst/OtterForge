@@ -342,19 +342,24 @@ class Workspace(ctk.CTkFrame):
         self.after(40, self._poll_render_queue, version)
 
     def _card_load_worker(self, cards, version: int,
-                          canvas_w: int, spacing_x: int, card_w: int) -> None:
-        """Thread : charge chaque image PIL et la dépose dans la queue."""
+                          canvas_w: int, spacing_x: int, card_w: int,
+                          first_global_index: int = 0,
+                          total_cards: int | None = None) -> None:
+        """Thread : charge chaque image PIL et la dépose dans la queue.
+
+        first_global_index : index global du premier élément de `cards` dans self.cards
+                             (0 pour un chargement complet, existing_count pour un append)
+        total_cards        : nombre total de cartes dans self.cards (pour le centrage)
+        """
         show_backs = self._show_backs
         global_back = self.app.deck_back_image
         card_h = self._card_h
         spacing_y = self._spacing_y
         back_gap = self._back_gap
 
-        # Auto-layout : nombre de colonnes selon la largeur du canvas
         cards_per_row = max(1, canvas_w // spacing_x)
-
-        # Centrage horizontal : largeur réelle de la rangée (inclut le verso de la dernière paire)
-        n_in_row = min(cards_per_row, len(cards))
+        total = total_cards if total_cards is not None else len(cards)
+        n_in_row = min(cards_per_row, total)
         if show_backs:
             row_content_w = (n_in_row - 1) * spacing_x + card_w * 2 + back_gap
         else:
@@ -362,21 +367,23 @@ class Workspace(ctk.CTkFrame):
         start_x = max(20, (canvas_w - row_content_w) // 2)
         start_y = self.START_Y
 
-        x, y = start_x, start_y
         max_x, max_y = start_x, start_y
 
         for i, card in enumerate(cards):
             if version != self._load_version:
                 return
 
-            cx, cy = x, y
+            gi = first_global_index + i
+            cx = start_x + (gi % cards_per_row) * spacing_x
+            cy = start_y + (gi // cards_per_row) * spacing_y
+
             try:
                 display_path = card.image_path
                 if display_path.endswith("_1200dpi.png"):
                     original = display_path.replace("_1200dpi.png", ".png")
                     if os.path.exists(original):
                         display_path = original
-                img = Image.open(display_path).resize((card_w, card_h), Image.LANCZOS)
+                img = Image.open(display_path).resize((card_w, card_h), Image.BILINEAR)
 
                 back_img = None
                 if show_backs:
@@ -389,11 +396,11 @@ class Workspace(ctk.CTkFrame):
                             back_path = native
                     if back_path and os.path.isfile(back_path):
                         try:
-                            back_img = Image.open(back_path).resize((card_w, card_h), Image.LANCZOS)
+                            back_img = Image.open(back_path).resize((card_w, card_h), Image.BILINEAR)
                         except Exception:
                             pass
                     if back_img is None:
-                        back_img = Image.new("RGB", (card_w, card_h), (35, 35, 35))
+                        back_img = Image.new("RGB", (card_w, card_h), (40, 37, 46))
 
                 self._render_queue.put(("card", card, img, back_img, cx, cy))
             except Exception as e:
@@ -402,10 +409,6 @@ class Workspace(ctk.CTkFrame):
             item_w = card_w * 2 + back_gap if show_backs else card_w
             max_x = max(max_x, cx + item_w)
             max_y = max(max_y, cy + card_h)
-            x += spacing_x
-            if (i + 1) % cards_per_row == 0:
-                x = start_x
-                y += spacing_y
 
         self._render_queue.put(("done", max_x, max_y))
 

@@ -53,14 +53,18 @@ class ImportConfirmDialog(ctk.CTkToplevel):
         ).pack(padx=padx, pady=(6, 0))
 
         if card_count > 0:
-            secs_per_card = 12 if upscaler_available else 2
-            total_secs = card_count * secs_per_card
+            # Download parallelized ×5 workers (~0.4s/card wall time from Scryfall)
+            # Upscaled images are cached — repeat imports take only a few seconds
+            total_secs = max(5, card_count * 2 // 5)
             mins, secs = divmod(total_secs, 60)
             if mins > 0:
                 time_str = f"~{mins} min {secs} s" if secs else f"~{mins} min"
             else:
                 time_str = f"~{total_secs} s"
-            quality = "avec upscaling 1200 DPI" if upscaler_available else "téléchargement seul, sans upscaling"
+            if upscaler_available:
+                quality = "images en cache → rapide ; 1ère fois avec upscaling : plus long"
+            else:
+                quality = "téléchargement seul, sans upscaling"
             eta_text = f"Temps estimé : {time_str}  ({quality})"
         else:
             eta_text = "Aucune carte détectée dans ce fichier."

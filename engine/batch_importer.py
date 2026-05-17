@@ -162,28 +162,35 @@ class BatchImporter:
             idx, parsed = idx_parsed
             raw = parsed["raw"]
             card_label = parsed.get("name") or f"{parsed.get('set')} {parsed.get('collector_number')}"
-
-            card_json = None
-            if parsed["set"] and parsed["collector_number"]:
-                card_json = self.downloader.get_card_by_set(parsed["set"], parsed["collector_number"])
-                if not card_json and parsed["name"]:
+            try:
+                card_json = None
+                if parsed["set"] and parsed["collector_number"]:
+                    card_json = self.downloader.get_card_by_set(parsed["set"], parsed["collector_number"])
+                    if not card_json and parsed["name"]:
+                        card_json = self.downloader.get_card(parsed["name"])
+                elif parsed["name"]:
                     card_json = self.downloader.get_card(parsed["name"])
-            elif parsed["name"]:
-                card_json = self.downloader.get_card(parsed["name"])
 
-            with _lock:
-                _counter[0] += 1
-                if progress_callback:
-                    progress_callback(_counter[0], total, card_label)
+                with _lock:
+                    _counter[0] += 1
+                    if progress_callback:
+                        progress_callback(_counter[0], total, card_label)
 
-            if not card_json:
-                return idx, {"skip": raw, "reason": "Carte introuvable sur Scryfall"}
+                if not card_json:
+                    return idx, {"skip": raw, "reason": "Carte introuvable sur Scryfall"}
 
-            face_paths = self.downloader.download_all_face_images(card_json)
-            if not face_paths:
-                return idx, {"skip": raw, "reason": "Image introuvable sur Scryfall"}
+                face_paths = self.downloader.download_all_face_images(card_json)
+                if not face_paths:
+                    return idx, {"skip": raw, "reason": "Image introuvable sur Scryfall"}
 
-            return idx, (card_json, face_paths, parsed)
+                return idx, (card_json, face_paths, parsed)
+            except Exception as e:
+                with _lock:
+                    if _counter[0] < total:
+                        _counter[0] += 1
+                        if progress_callback:
+                            progress_callback(_counter[0], total, card_label)
+                return idx, {"skip": raw, "reason": f"Erreur : {e}"}
 
         with ThreadPoolExecutor(max_workers=5) as pool:
             for idx, result in pool.map(_download_one, enumerate(parsed_lines)):

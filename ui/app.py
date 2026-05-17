@@ -52,6 +52,20 @@ class OtterForgeApp(ctk.CTk):
         super().__init__()
 
         self.title("OtterForge")
+
+        # Icône fenêtre + barre des tâches (ICO multi-résolution)
+        _logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "OtterForge_Image.jpg")
+        _ico_path  = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "otterforge_icon.ico"))
+        try:
+            from PIL import Image
+            if not os.path.exists(_ico_path):
+                _pil = Image.open(_logo_path).convert("RGBA")
+                _pil.save(_ico_path, format="ICO",
+                          sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+            self.after(0, lambda: self.iconbitmap(_ico_path))
+        except Exception:
+            pass
+
         self.minsize(900, 600)
         # Restaure la géométrie sauvegardée, sinon démarre en zoomed
         saved_geo = self._load_user_config().get("window_geometry")
@@ -613,21 +627,84 @@ class OtterForgeApp(ctk.CTk):
         self._save_user_config()
 
         cards = list(deck.cards)
+        has_non_dfc = any(not getattr(c, "back_image_path", None) for c in deck.cards)
+        fill_black_lotus = not self.deck_back_image and has_non_dfc
+
         self.statusbar.show_progress()
         self.statusbar.set_status("Ouverture de MPC…")
 
         threading.Thread(
             target=self._mpc_upload_worker,
             args=(cards, config["headless"], config["stock"], config["login"],
-                  total_slots, self.deck_back_image, config["upload_backs"]),
+                  total_slots, self.deck_back_image, config["upload_backs"], fill_black_lotus),
             daemon=True,
         ).start()
 
+    def _get_black_lotus_path(self) -> str | None:
+        """Downloads the standard MTG card back design and returns its local path."""
+        import io
+        import requests as _req
+        from PIL import Image as _Image
+
+        raw_cache = os.path.join("cache", "scryfall", "_mpcfill_cardback.png")
+        mpc300 = raw_cache.replace(".png", "_mpc300.png")
+        if os.path.exists(mpc300):
+            return mpc300
+
+        # Build source list: Scryfall CDN first, Wikimedia as reliable fallback
+        sources = []
+        try:
+            resp = _req.get(
+                "https://api.scryfall.com/cards/named",
+                params={"exact": "Lightning Bolt"},
+                timeout=8,
+            )
+            resp.raise_for_status()
+            back_id = resp.json().get("card_back_id", "0aeebaf5-8c7d-4636-9e82-8c27447861f7")
+            for size in ("large", "normal"):
+                sources.append(
+                    f"https://c2.scryfall.com/file/scryfall-card-backs/{size}/{back_id[:2]}/{back_id}.jpg"
+                )
+        except Exception:
+            back_id = "0aeebaf5-8c7d-4636-9e82-8c27447861f7"
+            sources.append(f"https://c2.scryfall.com/file/scryfall-card-backs/large/{back_id[:2]}/{back_id}.jpg")
+        sources.append("https://upload.wikimedia.org/wikipedia/en/a/aa/Magic_the_gathering-card_back.jpg")
+
+        img = None
+        for url in sources:
+            try:
+                resp2 = _req.get(url, timeout=20, headers={"User-Agent": "OtterForge/2.0"})
+                resp2.raise_for_status()
+                img = _Image.open(io.BytesIO(resp2.content))
+                print(f"[App] MTG card back téléchargé : {url[:80]}")
+                break
+            except Exception:
+                continue
+
+        if img is None:
+            print("[App] Impossible de télécharger le card back MTG")
+            return None
+
+        os.makedirs(os.path.dirname(raw_cache), exist_ok=True)
+        img.save(raw_cache, "PNG")
+
+        if os.path.exists(mpc300):
+            return mpc300
+        return self.batch_importer._apply_300dpi_bleed(raw_cache)
+
     def _mpc_upload_worker(self, cards: list, headless: bool, stock: str,
                            login: bool, total: int, back_image: str | None,
-                           upload_backs: bool = True) -> None:
+                           upload_backs: bool = True, fill_black_lotus: bool = False) -> None:
         """Thread : lance l'automation MPC et met à jour la progress bar."""
         self._upload_in_progress = True
+
+        if fill_black_lotus and not back_image:
+            self.after(0, self.statusbar.set_status, "Téléchargement card back MTG (MPCFILL)…")
+            back_image = self._get_black_lotus_path()
+            if back_image:
+                print(f"[App] MTG card back : {back_image}")
+            else:
+                print("[App] Card back introuvable — upload sans card back")
 
         def progress(current: int, total_: int, label: str) -> None:
             self.after(0, self.statusbar.set_status, label)

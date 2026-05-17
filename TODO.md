@@ -118,10 +118,11 @@
   Actuellement toutes les images du deck sont chargées en mémoire même si peu visibles.
   Charger uniquement les cartes dans le viewport + 1 écran de marge.
 
-- [ ] **Zoom adaptatif au changement de taille de fenêtre**
+- [x] **Zoom adaptatif au changement de taille de fenêtre**
   Le canvas workspace ne recalcule pas le layout quand la fenêtre est redimensionnée.
   Binder `<Configure>` sur le canvas et rappeler `load_cards()` si la largeur change
   de plus de 50 px.
+  -> Déjà complété (détecté 2026-05-17) — `_on_canvas_resize` + `_on_resize_done` déjà en place (threshold 30px, debounce 400ms)
 
 - [ ] **Aperçu feuille zoomable (PreviewPanel)**
   Ajouter un clic sur les miniatures du `PreviewPanel` pour ouvrir la feuille en plein écran.

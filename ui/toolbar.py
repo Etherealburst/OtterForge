@@ -29,19 +29,26 @@ class Toolbar(ctk.CTkFrame):
             os.path.dirname(os.path.dirname(__file__)), "assets", "OtterForge_Image.jpg"
         )
         try:
-            pil_img = Image.open(logo_path).resize((38, 38), Image.LANCZOS).convert("RGBA")
-            mask = Image.new("L", (38, 38), 0)
-            ImageDraw.Draw(mask).ellipse((0, 0, 38, 38), fill=255)
+            pil_img = Image.open(logo_path).resize((56, 56), Image.LANCZOS).convert("RGBA")
+            mask = Image.new("L", (56, 56), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, 56, 56), fill=255)
             pil_img.putalpha(mask)
-            ctk_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(38, 38))
-            ctk.CTkLabel(brand, image=ctk_logo, text="").pack(side="left", padx=(0, 10))
+            ctk_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(56, 56))
+            ctk.CTkLabel(brand, image=ctk_logo, text="").pack(side="left", padx=(0, 10), pady=4)
         except Exception:
             pass
 
+        name_frame = ctk.CTkFrame(brand, fg_color="transparent")
+        name_frame.pack(side="left")
         ctk.CTkLabel(
-            brand, text="OTTERFORGE",
+            name_frame, text="OTTER",
             font=ctk.CTkFont(family="Georgia", size=15, weight="bold"),
             text_color="#f0ece4",
+        ).pack(side="left")
+        ctk.CTkLabel(
+            name_frame, text="FORGE",
+            font=ctk.CTkFont(family="Georgia", size=15, weight="bold"),
+            text_color="#c04828",
         ).pack(side="left")
 
         # ── Séparateur ────────────────────────────────────────────────────

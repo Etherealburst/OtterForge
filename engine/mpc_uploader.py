@@ -238,6 +238,7 @@ class MPCUploader:
                 self._screenshot(page, "04_editor_loaded")
 
                 # --- 5. Upload fronts ---
+                page.wait_for_timeout(1_500)   # laisse les slots se rendre dans l'éditeur
                 for i, slot in enumerate(fronts):
                     cb(i + 1, f"Front {i+1}/{total} — {slot['name']}")
                     self._upload_and_place(page, i, slot["path"])
@@ -268,6 +269,21 @@ class MPCUploader:
                         cb(total, f"Endos global : {os.path.basename(unique_backs[0])}")
                         self._upload_same_back_to_all(page, unique_backs[0])
                     else:
+                        # Poll until the first back slot element is rendered
+                        first_slot = next((i for i, b in enumerate(backs) if b is not None), 0)
+                        _back_frame = next(
+                            (f for f in page.frames if self._frame_has_editor(f)), None
+                        )
+                        if _back_frame:
+                            for _ in range(30):  # up to 6s (30 × 200ms)
+                                try:
+                                    if _back_frame.evaluate(
+                                        f'() => !!PageLayout.prototype.getElement3("dnImg", {first_slot})'
+                                    ):
+                                        break
+                                except Exception:
+                                    pass
+                                page.wait_for_timeout(200)
                         for i, back_path in enumerate(backs):
                             if back_path is None:
                                 continue
@@ -285,7 +301,7 @@ class MPCUploader:
                 nav_frame = back_frame if back_frame else front_frame
                 nav_sources = _back_sources if back_frame else _front_sources
                 nav_layer = back_layer if back_frame else front_layer
-                self._click_next_step(page, frame=nav_frame, sources=nav_sources, layer=nav_layer)
+                self._click_next_step(page, frame=nav_frame, sources=nav_sources, layer=nav_layer, total=total)
                 page.wait_for_timeout(1_000)
                 if "dn_texteditor" in page.url:
                     step_name = "front" if "dn_texteditor_front" in page.url else "back"
@@ -622,13 +638,21 @@ class MPCUploader:
         except Exception:
             return False
 
-    def _click_next_step(self, page, frame=None, sources: dict | None = None, layer: str | None = None) -> bool:
+    def _click_next_step(self, page, frame=None, sources: dict | None = None, layer: str | None = None, total: int = 0) -> bool:
         """Avance d'une étape via oDesign.setNextStep() — même logique que _advance_to_back."""
         # Attendre fin spinner
         try:
             page.wait_for_selector("#sysdiv_wait", state="hidden", timeout=120_000)
         except Exception:
             pass
+
+        # Sauvegarder TOUS les slots côté serveur avant setNextStep (obligatoire, comme _advance_to_back).
+        # Sans ce POST, btn_next_step reste désactivé et setNextStep ne déclenche aucune navigation.
+        if sources and frame:
+            nat_layer = layer or "back"
+            print(f"[MPC] Sauvegarde {nat_layer} ({len(sources)} slots) avant avancement…")
+            self._post_complete_sources(page, frame, sources, nat_layer, total=total)
+            page.wait_for_timeout(800)
 
         # Essai 1 : setNextStep() — dialog accept géré par handler global
         try:
@@ -883,7 +907,7 @@ class MPCUploader:
             nat_layer = layer or "front"
             print(f"[MPC] Sauvegarde {nat_layer} ({len(sources)} slots) → serveur MPC…")
             self._post_complete_sources(page, frame, sources, nat_layer)
-            page.wait_for_timeout(1_500)
+            page.wait_for_timeout(800)
 
         # 3. oDesign.setNextStep() — le confirm() dialog est géré par page.on("dialog", accept).
         # expect_navigation AVANT evaluate() pour capturer les navigations immédiates.
@@ -968,6 +992,13 @@ class MPCUploader:
 
         pids_after = self._get_pid_list(frame)
         new_pids = [p for p in pids_after if p not in pids_before]
+        if not new_pids:
+            for _ in range(25):
+                page.wait_for_timeout(200)
+                pids_after = self._get_pid_list(frame)
+                new_pids = [p for p in pids_after if p not in pids_before]
+                if new_pids:
+                    break
         pid = new_pids[-1] if new_pids else (pids_after[-1] if pids_after else "")
         if not pid:
             print("[MPC] ⚠ pid introuvable pour endos global")
@@ -1001,11 +1032,19 @@ class MPCUploader:
             except Exception as e:
                 print(f"[MPC] Erreur upload slot {slot_index} : {e}")
                 return
-            page.wait_for_timeout(1_000)
+            page.wait_for_timeout(200)
             self._wait_upload_complete(frame, page)
             self._wait_spinner(frame, timeout=15_000)
+            # Poll until the new pid appears in dn_getImageList (can lag on first upload)
             pids_after = self._get_pid_list(frame)
             new_pids = [p for p in pids_after if p not in pids_before]
+            if not new_pids:
+                for _ in range(25):  # up to 5s (25 × 200ms)
+                    page.wait_for_timeout(200)
+                    pids_after = self._get_pid_list(frame)
+                    new_pids = [p for p in pids_after if p not in pids_before]
+                    if new_pids:
+                        break
             pid = new_pids[-1] if new_pids else (pids_after[-1] if pids_after else "")
             if pid:
                 self._path_to_pid[image_path] = pid
@@ -1046,23 +1085,30 @@ class MPCUploader:
 
     def _apply_drag_photo(self, frame, page, slot_index: int, pid: str) -> None:
         """Assigne pid au slot via PageLayout.prototype.applyDragPhoto (approche mpc-autofill)."""
-        try:
-            result = frame.evaluate(f"""() => {{
-                const el = PageLayout.prototype.getElement3("dnImg", {slot_index});
-                if (!el) return 'null';
-                PageLayout.prototype.applyDragPhoto(el, 0, "{pid}");
-                return 'ok';
-            }}""")
-            if result == 'null':
-                print(f"[MPC] ⚠ getElement3 null pour slot {slot_index} — image non assignée")
+        for attempt in range(3):
+            try:
+                result = frame.evaluate(f"""() => {{
+                    const el = PageLayout.prototype.getElement3("dnImg", {slot_index});
+                    if (!el) return 'null';
+                    PageLayout.prototype.applyDragPhoto(el, 0, "{pid}");
+                    return 'ok';
+                }}""")
+                if result == 'null':
+                    if attempt < 2:
+                        page.wait_for_timeout(1_000)
+                        continue
+                    print(f"[MPC] ⚠ getElement3 null pour slot {slot_index} — image non assignée")
+                    return
+                # mpc-autofill : wait() après CHAQUE applyDragPhoto (visible → hidden sur sysdiv_wait).
+                self._wait_sysdiv(frame, page, timeout=30_000)
+                print(f"[MPC] ✓ Slot {slot_index} rempli (pid={pid[:8]}…)")
                 return
-            # mpc-autofill : wait() après CHAQUE applyDragPhoto (visible → hidden sur sysdiv_wait).
-            self._wait_sysdiv(frame, page, timeout=30_000)
-            print(f"[MPC] ✓ Slot {slot_index} rempli (pid={pid[:8]}…)")
-        except Exception as e:
-            print(f"[MPC] ⚠ applyDragPhoto slot {slot_index} : {e}")
+            except Exception as e:
+                print(f"[MPC] ⚠ applyDragPhoto slot {slot_index} (tentative {attempt+1}) : {e}")
+                if attempt < 2:
+                    page.wait_for_timeout(1_000)
 
-    def _post_complete_sources(self, page, frame, sources: dict, layer: str) -> None:
+    def _post_complete_sources(self, page, frame, sources: dict, layer: str, total: int = 0) -> None:
         """POST hidd_image_list complet à dn_update_transition_data.aspx via fetch().
 
         Construit la liste complète à partir des sources capturées depuis
@@ -1075,7 +1121,10 @@ class MPCUploader:
             return
 
         max_idx = max(sources.keys())
-        image_list = [sources.get(i, {}) for i in range(max_idx + 1)]
+        # Utilise total pour garantir que la liste couvre TOUS les slots (ex : backs DFC partiels).
+        # MPC s'attend à recevoir tous les slots ; les entrées vides ({}) désignent le back MPC par défaut.
+        n = max(max_idx + 1, total)
+        image_list = [sources.get(i, {}) for i in range(n)]
         image_list_str = _json.dumps(image_list, separators=(",", ":"))
         js_image_list = _json.dumps(image_list_str)   # JS string literal
 
@@ -1113,7 +1162,7 @@ class MPCUploader:
                     }}
                 }}
             """)
-            page.wait_for_timeout(1_000)
+            page.wait_for_timeout(500)
             print(f"[MPC] ✓ {layer} sauvegardé → {status}")
         except Exception as e:
             print(f"[MPC] ⚠ _post_complete_sources {layer}: {e}")
