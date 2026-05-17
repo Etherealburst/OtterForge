@@ -252,36 +252,39 @@ Chargement au démarrage : `_load_saved_decks()` charge tous les JSON de `decks/
 
 ---
 
-## État du projet (2026-05-16)
+## État du projet (2026-05-17)
 
 ### Fonctionnel
 - Import Scryfall (nom fuzzy + set/CN exact + formats Moxfield/Arena)
-- Import batch TXT avec rapport des cartes ignorées
-- Upscaling Real-ESRGAN (optionnel)
-- Workspace : zoom 3 niveaux, drag & drop, find-in-deck, mode Faces+Backs (BACKS_SCALE=0.88 → ~4 paires/rangée)
-- Sidebar : compteurs +/-/×, filtre temps réel avec bouton × clear
+- Import batch TXT avec rapport des cartes ignorées + dialog de confirmation
+- Upscaling Real-ESRGAN (optionnel, parallèle max 2 workers)
+- Workspace : zoom 3 niveaux, drag & drop, find-in-deck, mode Faces+Backs, Ctrl+A + Suppr
+- Sidebar : compteurs +/-/×, filtre temps réel, boutons ↑↓ réorganisation
 - Multiple decks avec onglets paginés MAX_VISIBLE=4 (créer, renommer, supprimer, switcher)
 - Endos global du deck + endos par carte (DFC et override manuel)
 - Export feuilles d'impression + ZIP
 - Upload MPC automatisé (Playwright) avec progress bar
 - DFC : téléchargement des deux faces, stockage `back_image_path`, affichage et upload corrects
-- CardInspectorPanel dual-mode (CARD tab + STATS tab) — affiche le verso si clic sur back en workspace
+- CardInspectorPanel dual-mode (CARD tab + STATS tab) — zoom popup centré sur workspace (clic image)
+- Undo/Redo : Ctrl+Z / Ctrl+Y
+- Icône OtterForge : barre de titre + barre des tâches Windows (`assets/otterforge_icon.ico`)
 
 ### Points d'attention
-- **Upload MPC** : le flux fonctionne mais dépend de la structure HTML de MPC. Voir HANDOFF.md section "Règles critiques".
+- **Upload MPC** : le flux fonctionne mais dépend de la structure HTML de MPC.
 - **Real-ESRGAN** : chemin hardcodé dans `config.py` (`REALESRGAN_DIR`). Si absent → 300 DPI.
 - **Playwright** : installer séparément (`pip install playwright && playwright install chromium`).
-- **`add_cards_bulk`** (import TXT) : pas de dédup voulu — append direct.
-- **DeckSidebar header** : tentative de réduction padding (session 2) inefficace — voir HANDOFF.md section PRIORITÉ 1 pour le fix avec `pack_propagate(False)` + height=22.
+- **Icône taskbar** : `SetCurrentProcessExplicitAppUserModelID` dans `main.py` — requis pour que Windows distingue OtterForge de `python.exe`.
+- **CTkToplevel.geometry()** : scale la TAILLE (logique→physique) mais PAS la position +X+Y — passer des pixels physiques pour la position.
+- **DeckTabs** : boutons dans CTkFrame wrapper (pack_propagate=False + place relwidth=1.0) — ne jamais détruire/recréer les widgets dans render(), seulement configure().
 
-### Bugs corrigés (sessions 1 + 2, 2026-05-14 → 2026-05-16)
+### Bugs corrigés (toutes sessions, 2026-05-14 → 2026-05-17)
 1. **Upload bloqué front→back** : `_post_complete_sources` AVANT `setNextStep()` + dialog handler.
 2. **Bleed / pointillé rouge MPC** : `_fit_to_mpc` scale-to-fit + canvas noir.
 3. **KeyError 'corner_radius'** : `otterforge_theme.json` doit contenir toutes les clés CTk structurelles.
 4. **CardSearch ignorait s:/cn:** : guard ajouté dans `_MOXFIELD_BASIC_RE` branch.
-5. **Dédup par nom fusionnait éditions différentes** : dédup par `image_path` à la place.
-6. **Toolbar boutons coupés** : HEIGHT 52→64px.
-7. **DeckTabs débordement** : MAX_VISIBLE=4 + flèches ◀▶ + `_ensure_tab_visible`.
+5. **Toolbar boutons coupés** : HEIGHT 52→64px.
+6. **DeckTabs boutons qui se déplacent** : CTkFrame wrapper fixe (110px) + place(relwidth=1.0).
+7. **Zoom popup mal centré / trop grand / se ferme seul** : coordonnées physiques, taille fixe 380×532px, bind_all ButtonPress-1 avec délai 200ms.
 8. **Workspace cartes à gauche** : auto-layout `canvas_w // spacing_x` + centrage.
 9. **Scrollbars système incohérentes** : remplacées par `ctk.CTkScrollbar`.
-10. **Faces+Backs : trop de colonnes + débordement** : BACKS_SCALE=0.88, formule centrage corrigée (inclure `card_w*2 + back_gap` pour la dernière paire).
+10. **Faces+Backs débordement** : BACKS_SCALE=0.88, formule centrage corrigée.
