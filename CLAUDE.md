@@ -252,30 +252,36 @@ Chargement au démarrage : `_load_saved_decks()` charge tous les JSON de `decks/
 
 ---
 
-## État du projet (2026-05-14)
+## État du projet (2026-05-16)
 
 ### Fonctionnel
 - Import Scryfall (nom fuzzy + set/CN exact + formats Moxfield/Arena)
 - Import batch TXT avec rapport des cartes ignorées
 - Upscaling Real-ESRGAN (optionnel)
-- Workspace : zoom 3 niveaux, drag & drop, preview plein écran, find-in-deck, mode Faces+Backs
-- Sidebar : compteurs +/-/×
-- Multiple decks avec onglets (créer, renommer, supprimer, switcher)
+- Workspace : zoom 3 niveaux, drag & drop, find-in-deck, mode Faces+Backs (BACKS_SCALE=0.88 → ~4 paires/rangée)
+- Sidebar : compteurs +/-/×, filtre temps réel avec bouton × clear
+- Multiple decks avec onglets paginés MAX_VISIBLE=4 (créer, renommer, supprimer, switcher)
 - Endos global du deck + endos par carte (DFC et override manuel)
 - Export feuilles d'impression + ZIP
 - Upload MPC automatisé (Playwright) avec progress bar
 - DFC : téléchargement des deux faces, stockage `back_image_path`, affichage et upload corrects
+- CardInspectorPanel dual-mode (CARD tab + STATS tab) — affiche le verso si clic sur back en workspace
 
 ### Points d'attention
-- **Upload MPC** : le flux fonctionne mais dépend de la structure HTML de MPC qui peut changer. À re-vérifier si MPC change son interface. Voir section "Navigation entre étapes" ci-dessus pour la logique critique.
-- **Real-ESRGAN** : chemin hardcodé dans `upscaler.py` (`REALESRGAN_DIR`). Si l'exe est absent, l'app tourne normalement en 300 DPI.
-- **Playwright** : doit être installé séparément (`pip install playwright && playwright install chromium`). Erreur claire affichée si absent.
-- **`add_cards_bulk`** (import TXT) : ne vérifie pas les doublons — fait `append` direct. Comportement voulu pour l'import batch (l'utilisateur gère son fichier TXT).
+- **Upload MPC** : le flux fonctionne mais dépend de la structure HTML de MPC. Voir HANDOFF.md section "Règles critiques".
+- **Real-ESRGAN** : chemin hardcodé dans `config.py` (`REALESRGAN_DIR`). Si absent → 300 DPI.
+- **Playwright** : installer séparément (`pip install playwright && playwright install chromium`).
+- **`add_cards_bulk`** (import TXT) : pas de dédup voulu — append direct.
+- **DeckSidebar header** : tentative de réduction padding (session 2) inefficace — voir HANDOFF.md section PRIORITÉ 1 pour le fix avec `pack_propagate(False)` + height=22.
 
-### Bugs récemment corrigés
-1. **Upload bloqué front→back** : `_post_complete_sources` doit être appelé AVANT `setNextStep()` + `page.on("dialog", accept)` pour accepter le confirm() MPC. Résolu 2026-05-14.
-2. **Bleed / pointillé rouge MPC** : `_fit_to_mpc` utilise maintenant scale-to-fit dans la zone de coupe + canvas noir (au lieu de scale-to-cover + crop).
-3. **DFC via CardSearch** : `back_image_path` correctement défini, noms normalisés pour le merge
-4. **Fallback _1200dpi → .png** : `workspace._card_load_worker` et `_get_back_path` tentent le PNG natif si l'upscalé est absent
-5. **`load_deck`** : résout le chemin réel de `image_path` et `back_image_path` (fallback + validation existence)
-6. **`add_card`** : merge DFC-tolérant via `_card_name_key()` (insensible casse, ignore " // BackFace")
+### Bugs corrigés (sessions 1 + 2, 2026-05-14 → 2026-05-16)
+1. **Upload bloqué front→back** : `_post_complete_sources` AVANT `setNextStep()` + dialog handler.
+2. **Bleed / pointillé rouge MPC** : `_fit_to_mpc` scale-to-fit + canvas noir.
+3. **KeyError 'corner_radius'** : `otterforge_theme.json` doit contenir toutes les clés CTk structurelles.
+4. **CardSearch ignorait s:/cn:** : guard ajouté dans `_MOXFIELD_BASIC_RE` branch.
+5. **Dédup par nom fusionnait éditions différentes** : dédup par `image_path` à la place.
+6. **Toolbar boutons coupés** : HEIGHT 52→64px.
+7. **DeckTabs débordement** : MAX_VISIBLE=4 + flèches ◀▶ + `_ensure_tab_visible`.
+8. **Workspace cartes à gauche** : auto-layout `canvas_w // spacing_x` + centrage.
+9. **Scrollbars système incohérentes** : remplacées par `ctk.CTkScrollbar`.
+10. **Faces+Backs : trop de colonnes + débordement** : BACKS_SCALE=0.88, formule centrage corrigée (inclure `card_w*2 + back_gap` pour la dernière paire).

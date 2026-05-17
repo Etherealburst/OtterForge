@@ -1,257 +1,195 @@
 # HANDOFF — OtterForge V2.0
 
-**Date :** 2026-05-16  
-**GitHub :** https://github.com/Etherealburst/OtterForge-V2 (privé, branche `master`)  
-**Fichier à lire en premier :** `engine/mpc_uploader.py`  
-**Référence :** `CLAUDE.md` (architecture complète du projet)
+**Dernière mise à jour :** 2026-05-16 (session 2)
+**GitHub :** https://github.com/Etherealburst/OtterForge-V2 (privé, branche `master`)
+**Dernier commit :** `1f02ba6`
+**Pour démarrer :** `python main.py` depuis `C:\Users\Samuel\Documents\MTG\OtterForge - V2.0\`
+**Référence architecture :** `CLAUDE.md` (lire en entier avant de toucher quoi que ce soit)
 
 ---
 
 ## Contexte du projet (ultra-court)
 
-Application Python (customtkinter) qui upload des decks proxy MTG sur MakePlayingCards.com via Playwright (Chromium headless/visible). Le flux upload est dans `engine/mpc_uploader.py`, classe `MPCUploader`.
+Application desktop Python qui :
+1. Permet de construire des decks proxy MTG (recherche Scryfall, import TXT/Moxfield)
+2. Génère des feuilles d'impression 3×3 au format MPC (300 DPI)
+3. Uploade automatiquement sur MakePlayingCards.com via Playwright (Chromium)
+
+Stack : `customtkinter` (GUI), `Pillow` (images), `requests` (Scryfall API), `playwright` (automation navigateur), Real-ESRGAN optionnel (upscaling ×4 → 1200 DPI).
 
 ---
 
-## État actuel : TOUT FONCTIONNE ✅
+## État au 2026-05-16 — TOUT FONCTIONNE ✅
 
-L'upload complet (fronts → backs → page de révision) est opérationnel. Toutes les fonctionnalités principales sont stables au 2026-05-16.
-
----
-
-## Corrections appliquées le 2026-05-16
-
-### A. `add_cards_bulk` avec déduplication (`engine/deck_manager.py`) ✅
-
-**Problème :** L'import TXT utilisait `deck.cards.append()` directement → doublons si une carte était déjà dans le deck.  
-**Correction :** Délègue à `add_card()` qui merge par nom normalisé DFC.
-
-### B. `REALESRGAN_DIR` déplacé vers `config.py` ✅
-
-**Problème :** Chemin hardcodé dans `engine/upscaler.py`.  
-**Correction :** `config.py` contient maintenant `REALESRGAN_DIR = r"C:\Users\Samuel\Documents\MTG\Real-ESGRAN"`. `upscaler.py` importe `from config import REALESRGAN_DIR`.
-
-### C. `_save_transition_data` supprimée (`engine/mpc_uploader.py`) ✅
-
-Méthode marquée DEPRECATED sans appelants — supprimée proprement.
-
-### D. Bouton "+" dédoublé dans DeckTabs (`ui/deck_tabs.py`) ✅
-
-**Problème :** `render()` ne détruisait que `self.buttons`, laissant le bouton "+" de la passe précédente en place.  
-**Correction :** `for widget in self.winfo_children(): widget.destroy()` au début de `render()`.
-
-### E. Menu contextuel deck remplacé (`ui/deck_tabs.py`) ✅
-
-**Problème :** `tk.Menu` natif Windows trop petit, illisible.  
-**Correction :** CTkToplevel popup avec police 13, couleurs OtterForge grays.
-
-### F. Bouton "−" pour supprimer le deck actif (`ui/deck_tabs.py`) ✅
-
-Ajouté à gauche des onglets. Confirmation CTkToplevel avant suppression.
-
-### G. Ctrl+A pour tout sélectionner + Suppr pour vider le deck (`ui/workspace.py`) ✅
-
-- Ctrl+A : contours bleus sur toutes les cartes, état `_all_selected = True`
-- Suppr avec `_all_selected` : confirmation puis vide `deck.cards`
-- Échap / clic : annule la sélection
-
-### H. Décodage URL des noms de cartes (`engine/batch_importer.py`) ✅
-
-**Problème :** `Continue%3F` dans un fichier TXT → passé tel quel à Scryfall → 404.  
-**Correction :** `urllib.parse.unquote()` appliqué au nom dans les 3 branches de `parse_line()` (Arena/Moxfield full, Moxfield basic, TXT custom).
+L'upload complet (fronts → backs → page de révision) est stable.
+L'UI a été entièrement redesignée avec la palette v2 "métal froid + braise".
+Les fonctionnalités principales (import, search, workspace, sidebar, inspector) sont opérationnelles.
 
 ---
 
-## Repo GitHub (depuis 2026-05-16)
+## Palette UI v2 — "Métal froid + Braise"
 
-- **URL :** https://github.com/Etherealburst/OtterForge-V2
-- **Branche :** `master`
-- **Contenu versionné :** code Python, `assets/`, `CLAUDE.md`, `HANDOFF.md`, `requirements.txt`
-- **Exclus (.gitignore) :** `cache/`, `output/`, `decks/`, `card_backs/`, `debug_mpc/`, executables, `__pycache__`
+Toutes les couleurs hardcodées dans les fichiers UI suivent cette palette. **Ne jamais utiliser les anciennes couleurs or/charbon (#d4a843, #0f0b05, #2a2010, #1a1408).**
+
+| Rôle | Hex |
+|------|-----|
+| Accent principal | `#c04828` (braise) |
+| Accent hover | `#a83820` |
+| Fond principal (fenêtre) | `#0d0c0e` (quasi-noir bleu-nuit froid) |
+| Fond frame | `#1a1820` (bleu-nuit sombre) |
+| Surface (rows, cards) | `#131118` |
+| Bouton secondaire | `#581e10` |
+| Bouton secondaire hover | `#3a1a10` |
+| Bouton danger | `#922b21` |
+| Texte principal | `#f0ece4` |
+| Texte secondaire | `#c4bfb8` |
+| Texte muet / labels | `#5a5060` |
+| Bordures / séparateurs | `#252030` |
+
+---
+
+## Architecture UI — État actuel
+
+```
+Toolbar (64px)
+  └─ Logo rond 38px + "OTTERFORGE" Georgia 15pt
+  └─ Groupe DECK : [↑ Open] [↓ Save] [⬇ Import]   (boutons 104px)
+  └─ Groupe OUTPUT : [⊞ Export] [◧ Card Back] [⬆ MPC]
+  └─ Tooltips au survol (_Tooltip via tk.Toplevel)
+
+DeckTabs (36px)
+  └─ MAX_VISIBLE = 4 onglets, flèches ◀▶ pour défiler
+  └─ _tab_offset : premier onglet visible
+  └─ _ensure_tab_visible(index) : appelé après select/create/delete
+
+CardSearch (46px)
+  └─ Accent bar #c04828 + label "SEARCH" + entry + bouton "Add to Deck"
+
+── main_frame ──────────────────────────────────────────────────────────
+│                                                                       │
+│  DeckSidebar (248px)    Workspace (expand)    CardInspectorPanel (270px) │
+│                                                                       │
+────────────────────────────────────────────────────────────────────────
+
+StatusBar (30px)
+```
+
+---
+
+## DeckSidebar (`ui/deck_sidebar.py`)
+
+- Header compact (pady=3) : "DECK" label (9pt, muted) + total count (droite)
+- Séparateur mince 1px
+- Filtre temps réel avec bouton × (s'illumine quand filtre non vide)
+- Liste scrollable : CTkScrollableFrame avec rows (−/count/+/×)
+- Clic sur carte → `self.app.inspector.show_card(card)`
+
+**TÂCHE PENDING — header height** : L'utilisateur veut que le strip "DECK + 101 cards" soit plus compact (il a demandé 1/3 de la hauteur actuelle). Une tentative a été faite en réduisant `pady=(10,4)→(3,0)` sur le header frame mais le changement visuel était imperceptible — CTk impose une hauteur minimale via le `fill="y"` de l'accent bar de 3px.
+
+**Fix à essayer** : au lieu de modifier le padding, remplacer l'accent bar verticale par une barre horizontale (changer `side="left", fill="y"` en `side="top", fill="x"` avec height=2), ou supprimer complètement l'accent bar dans le header et mettre le label "DECK" inline avec la count en une seule ligne, taille de font réduite à 8-9pt. L'objectif est un header d'environ 18-22px de haut au lieu des ~34px actuels.
+
+---
+
+## Workspace (`ui/workspace.py`)
+
+- **Auto-layout** : `cards_per_row = max(1, canvas_w // spacing_x)` — adaptatif
+- **Centrage** : `start_x = max(20, (canvas_w - row_content_w) // 2)`
+  - En mode Faces+Backs : `row_content_w = (n-1)*spacing_x + card_w*2 + back_gap` (IMPORTANT : inclure le verso de la dernière paire sinon débordement droite)
+- **BACKS_SCALE = 0.88** : les cartes en mode Faces+Backs sont à 88% de la taille normale → ~4 paires par rangée sur l'écran de l'utilisateur
+- **Resize** : binding `<Configure>` + debounce 400ms
+- Clic sur carte (ou verso) → `inspector.show_card(card, show_back=self._last_clicked_back)`
+- Clic droit : Remove / +1 / -1 / Open file / Change image / Set Card Back / Export image
+
+---
+
+## CardInspectorPanel (`ui/card_inspector.py`)
+
+Dual-mode :
+
+**Onglet CARD** :
+- `show_card(card, show_back=False)` — si `show_back=True` et que la carte a `back_image_path`, charge le verso. Label `← face verso` en braise affiché.
+- Image chargée en thread (non-bloquant), guard stale `if card is not self._current_card`
+
+**Onglet STATS** :
+- Total / unique / DFC count
+- Distribution copies / backs / top 6 cartes
+- `refresh_stats()` appelé depuis `app._on_search_success()` et `app._on_import_complete()`
+
+---
+
+## Toolbar (`ui/toolbar.py`)
+
+- HEIGHT = 64px, boutons 104×28px, font 11pt
+- `_Tooltip` : tk.Toplevel borderless
+- Logo : PIL Image circulaire 38px, `ctk.CTkImage`
+
+---
+
+## Règles critiques à ne jamais briser
+
+### Upload MPC (`engine/mpc_uploader.py`)
+Ordre obligatoire dans `_advance_to_back()` :
+1. Attendre `sysdiv_wait` caché
+2. `_post_complete_sources()` ← PREMIER, toujours
+3. wait 3 secondes
+4. `oDesign.setNextStep()` ← confirm() dialog géré par `page.on("dialog", accept)`
+
+### Thème CTk (`assets/otterforge_theme.json`)
+Doit contenir **toutes** les clés structurelles (corner_radius, border_width, button_length…). Si une clé manque → `KeyError` au démarrage.
+
+---
+
+## Bugs corrigés dans cette session (2026-05-16 session 2)
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Faces+Backs : trop de colonnes + débordement droite | `BACKS_SCALE` 0.75→0.88, correction formule centrage `row_content_w` |
+| 2 | Inspector ne montrait pas le verso en cliquant sur le back | `show_card(show_back=True)` + `_load_image_bg` lit `back_image_path` |
+| 3 | Sidebar sans bouton clear filtre | Ajout bouton × (dim quand vide, illuminé quand filtre actif) |
+| 4 | Sidebar HEIGHT trop grande (tentative ratée) | Rétablie en `fill="y"` — voir section DeckSidebar pour le fix pending |
+
+---
+
+## Ce qui reste à faire
+
+### PRIORITÉ 1 — DeckSidebar header trop grand (demande utilisateur non résolue)
+Voir section DeckSidebar ci-dessus. Le strip "DECK + 101 cards" en haut de la sidebar fait ~34px. L'utilisateur veut ~12-18px. La réduction de padding ne suffit pas car CTk force une hauteur min.
+
+**Approche recommandée** :
+```python
+# Remplacer le header actuel par une ligne inline ultra-compacte :
+header = ctk.CTkFrame(self, fg_color="#131118", height=22, corner_radius=0)
+header.pack(fill="x", padx=0, pady=0)
+header.pack_propagate(False)
+
+ctk.CTkLabel(header, text="DECK", font=ctk.CTkFont(size=8), text_color="#5a5060").pack(side="left", padx=(8,4))
+self.total_label = ctk.CTkLabel(header, text="", font=ctk.CTkFont(size=9), text_color="#c4bfb8")
+self.total_label.pack(side="right", padx=6)
+# Accent bar : ligne horizontale de 2px EN BAS du header (pas à gauche)
+ctk.CTkFrame(self, height=2, fg_color="#c04828", corner_radius=0).pack(fill="x")
+```
+Cela force le header à exactement 22px de haut avec `pack_propagate(False)`.
+
+### PRIORITÉ 2 — Améliorations non critiques
+- Workspace resize : légère disparition des cartes pendant ~400ms (debounce)
+- Inspector : afficher back image quand `_last_clicked_back` depuis la sidebar (pas encore de concept "back" dans sidebar)
+- MPC : retry automatique sur erreur réseau
+- Real-ESRGAN : chemin configurable via UI Préférences
+
+---
+
+## Commandes utiles
 
 ```powershell
-cd "C:\Users\Samuel\Documents\MTG\OtterForge - V2.0"
-git pull   # récupérer les changements du scheduled agent
+# Lancer l'app
+python main.py
+
+# Pull les derniers commits
+git pull
+
+# Supprimer le cache scryfall pour forcer re-upscale
+Remove-Item "cache\scryfall\*_1200dpi.png"
+
+# Vérifier que le thème charge sans erreur
+python -c "import customtkinter as ctk; ctk.set_default_color_theme('assets/otterforge_theme.json'); print('OK')"
 ```
-
----
-
-## Agent planifié (4h55 AM, 2026-05-16) — ONE-SHOT
-
-- **ID :** `trig_012sgTCcCM3mUkpzLa1eLbDd`
-- **URL :** https://claude.ai/code/routines/trig_012sgTCcCM3mUkpzLa1eLbDd
-- **Tâches :** (1) Analyse bugs + corrections (sans toucher `mpc_uploader.py`) (2) Restyling UI Or/Charbon (#d4a843, #c8902a, #0f0b05)
-- **Après exécution :** `git pull` pour récupérer les commits, puis `python main.py` pour vérifier.
-
----
-
----
-
-## Ce qui a été corrigé dans cette session
-
-### 1. Bleed / pointillé rouge MPC (`engine/upscaler.py`) ✅
-
-**Problème :** Les cartes "dépassaient le pointillé rouge" dans l'éditeur MPC. La fonction `_fit_to_mpc` utilisait **scale-to-cover + crop**, ce qui étirait la carte pour remplir toute la zone de fond perdu — le contenu de la carte (bordure noire incluse) dépassait la ligne de coupe (trim line = pointillé rouge).
-
-**Correction appliquée :**  
-`_fit_to_mpc` utilise maintenant **scale-to-fit dans la zone de coupe + canvas noir** (fond perdu = noir uni, ce qui correspond aux bordures Magic).
-
-- 1200 DPI (images upscalées) : carte ~3000×4188 centrée dans un canvas 3288×4488, entourée de 144 px de noir.
-- 300 DPI (images natives Scryfall) : nouvelle méthode `fit_native_to_mpc_300()` → carte ~750×1047 dans 822×1122.
-
-**Fichiers modifiés :**  
-- `engine/upscaler.py` — `_fit_to_mpc()` réécrit, `fit_native_to_mpc_300()` ajouté  
-- `engine/batch_importer.py` — appelle `fit_native_to_mpc_300()` quand upscaler absent  
-- `ui/app.py` — même logique dans `_search_worker` pour les cartes ajoutées unitairement
-
-**⚠ Important :** Les `_1200dpi.png` déjà en cache ont l'ANCIEN format (scale-to-cover). Il faut les supprimer dans `cache/scryfall/` pour forcer le re-upscale. Les imports TXT batch re-upscalent toujours → auto-corrigés. Les cartes ajoutées via la barre de recherche ne re-upscalent que si `_1200dpi.png` est absent.
-
----
-
-### 2. Viewport navigateur (`engine/mpc_uploader.py`) ✅
-
-**Problème :** La fenêtre MPC s'ouvrait décalée à droite / ne prenait pas tout l'écran. Playwright ignorait `--start-maximized` parce que `viewport` était forcé à `{"width": 1920, "height": 1080}`.
-
-**Correction :** `page = browser.new_page(viewport=None)` — le navigateur utilise maintenant la vraie taille maximisée.
-
----
-
-### 3. ETA dans le dialog "Upload to MPC" (`ui/app.py`) ✅
-
-Ajout d'une ligne de temps estimé sous la barre de seuils MPC :  
-`~{N} min  (fronts ~X min + backs ~Y min)`  
-Formule : ~35s/slot fronts + ~20s/slot backs + 3 min overhead.
-
----
-
-### 4. Upload bloqué au step 1 (Customize Front → Customize Back) ✅ RÉSOLU
-
-#### Symptôme
-Après l'upload de toutes les cartes recto (~129 cartes), le flux MPC restait bloqué à la page "Customize Front" et ne passait jamais à "Customize Back". Les logs montraient :
-
-```
-[MPC] MPC idle — sysdiv_wait caché
-[MPC] oDesign.setNextStep() — attente navigation (max 10 min)…
-[MPC] ⚠ setNextStep (page): Timeout 600000ms exceeded.
-```
-
-#### Historique des tentatives (ce qui n'a PAS marché)
-
-**Tentative 1 — Augmenter le timeout + wait_for_url**  
-Augmenter le timeout à 600s et remplacer `expect_navigation` par `wait_for_url`. L'URL ne changeait jamais. `wait_for_url` rate les navigations déclenchées pendant l'évaluation JS. Revenu à `expect_navigation`.
-
-**Tentative 2 — `_post_complete_sources` avant setNextStep (partiellement)**  
-Hypothèse : MPC ne connaissait que le dernier slot. On a forcé un POST manuel à `dn_update_transition_data.aspx` avec tous les slots capturés, puis forcé `btn_next_step` visible via CSS. Le bouton était bien forcé visible, `setNextStep()` était appelé, mais **aucune navigation ne se produisait**. Timeout 10 min. → Cause identifiée : le `confirm()` dialog.
-
-**Tentative 3 — Restructurer `_advance_to_back` (dans le mauvais ordre)**  
-On a déplacé `_post_complete_sources` en **dernier recours** (étape 4) pour "éviter les conflits AJAX". C'était l'erreur : sans `_post_complete_sources` en étape 2, `btn_next_step` reste désactivé côté serveur → `setNextStep()` ne fait rien → timeout.
-
-#### Cause réelle (deux problèmes combinés)
-
-**Problème A — Accumulation des slots côté serveur (principal)**  
-Chaque `applyDragPhoto` fait un POST à `dn_update_transition_data.aspx` avec un `hidd_image_list` d'un seul élément. Après 129 uploads, le serveur ne connaît que le **dernier slot**. `btn_next_step` reste désactivé jusqu'à ce que tous les slots soient déclarés.
-
-Vérifié dans les logs réseau :
-```
-[hidd_image_list] = [{"ID":"50BFDFDE..."}]  ← seulement slot 17
-[hidd_image_list] = [{"ID":"FC43CC7F..."}]  ← seulement slot 18
-```
-
-**Problème B — Dialog `confirm()` JS (secondaire)**  
-MPC affiche un `confirm()` JS lors du passage d'étape. mpc-autofill (Selenium) fait `alert.accept()`. Playwright **auto-dismiss** les `confirm()` (retourne `false`) sans handler → navigation jamais déclenchée.
-
-Référence mpc-autofill :
-```python
-driver.execute_script("javascript:oDesign.setNextStep();")
-try:
-    alert = driver.switch_to.alert
-    alert.accept()
-except NoAlertPresentException:
-    pass
-```
-
-#### Correction finale appliquée
-
-Deux changements dans `engine/mpc_uploader.py` :
-
-**1. Handler dialog (au démarrage, ligne ~78 dans `upload()`) :**
-```python
-page.on("dialog", lambda dialog: dialog.accept())
-```
-
-**2. Ordre dans `_advance_to_back` :**
-```
-1. Attendre sysdiv_wait caché (fin AJAX)
-2. _post_complete_sources() ← OBLIGATOIRE EN PREMIER (sauvegarde tous les slots)
-3. page.wait_for_timeout(3_000)
-4. oDesign.setNextStep() avec expect_navigation ← confirm() géré par handler
-5. Fallback : forcer btn_next_step visible + clic
-6. Dernier recours : __doPostBack
-```
-
-**Règle à ne jamais casser :** `_post_complete_sources` DOIT précéder `setNextStep()`. Si quelqu'un déplace `_post_complete_sources` en fallback ou last-resort, le bug revient.
-
----
-
-### 5. Ralentissement de l'upload fronts (`engine/mpc_uploader.py`) ✅
-
-**Problème :** Le nouveau `_wait_sysdiv` attendait jusqu'à 1000ms que le spinner apparaisse avant de continuer. Si l'AJAX était très rapide (~100ms), ce timeout expirait à chaque slot → ~2 minutes perdues sur 129 cartes.
-
-**Correction :** Timeout réduit de 1000ms à 300ms (équivalent à l'ancienne attente fixe).
-
-```python
-page.wait_for_selector("#sysdiv_wait", state="visible", timeout=300)
-```
-
----
-
-## Architecture rapide — fichiers clés
-
-```
-engine/mpc_uploader.py   ← Tout le flux Playwright. Classe MPCUploader.
-  upload()               ← Point d'entrée. Dialog handler ICI (ligne ~78).
-  _advance_to_back()     ← Transition step 1→2. _post_complete_sources() EN PREMIER.
-  _click_next_step()     ← Transition step 2→3 (révision).
-  _upload_and_place()    ← Upload image + applyDragPhoto pour un slot.
-  _apply_drag_photo()    ← Appelle PageLayout.prototype.applyDragPhoto.
-  _wait_sysdiv()         ← Attend fin du spinner MPC (visible→hidden, 300ms timeout).
-  _post_complete_sources() ← POST complet à dn_update_transition_data.aspx.
-
-engine/upscaler.py       ← Real-ESRGAN ×4 + _fit_to_mpc (bleed corrigé).
-engine/batch_importer.py ← Import TXT/Moxfield. Appelle upscaler.
-ui/app.py                ← UI principale. _search_worker, upload_to_mpc dialog.
-```
-
----
-
-## Comportement attendu du flux MPC (succès confirmé)
-
-```
-[MPC] Ouverture de MPC…
-[MPC] Lancement du design…
-[MPC] Préparation éditeur : 126 cartes, stock S30…
-[MPC] Upload UI prêt → https://…/dn_playingcards_mode_nf…
-[MPC] Front 1/126 — Lightning Bolt
-...
-[MPC] Front 126/126 — Island
-[MPC] MPC idle — sysdiv_wait caché
-[MPC] Sauvegarde front (126 slots) → serveur MPC…
-[MPC] ✓ front sauvegardé → 200 OK
-[MPC] oDesign.setNextStep() — attente navigation (max 10 min)…
-[MPC] (setNextStep) → https://…/dn_playingcards_mode_nb…   ← NAVIGATION RÉUSSIE
-[MPC] Basculement verso…
-[MPC] setMode ImageText same (1) → éditeur back
-[MPC] Endos global pid=abc123… → slot 0 (mode same image, MPC réplique)
-[MPC] Avancement vers la page de révision…
-[MPC] Page de révision : https://…/dn_playingcards_preview…
-[MPC] Upload terminé — finalisez la commande dans le navigateur
-```
-
----
-
-## Il ne reste rien à faire
-
-Le projet est fonctionnel bout en bout. Les prochains travaux éventuels seraient :
-- Tests de robustesse sur des decks avec DFC (double-face) en upload complet
-- Gestion des erreurs réseau MPC (retry automatique)
-- Paramétrer le chemin Real-ESRGAN via l'UI au lieu d'un hardcode dans `upscaler.py`
