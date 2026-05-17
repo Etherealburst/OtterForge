@@ -26,6 +26,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         self._current_card = None
         self._img_ref = None
         self._tab = "card"
+        self._show_back = False
 
         img_w = self.WIDTH - 24
         img_h = int(img_w * _CARD_RATIO)
@@ -229,9 +230,10 @@ class CardInspectorPanel(ctk.CTkFrame):
 
     # ── API publique ──────────────────────────────────────────────────────────
 
-    def show_card(self, card) -> None:
+    def show_card(self, card, show_back: bool = False) -> None:
         """Appelé depuis workspace ou sidebar quand une carte est sélectionnée."""
         self._current_card = card
+        self._show_back = show_back
         if self._tab != "card":
             self._switch_tab("card")
 
@@ -242,9 +244,12 @@ class CardInspectorPanel(ctk.CTkFrame):
         self._placeholder_text.place_forget()
 
         has_back = bool(getattr(card, "back_image_path", None))
-        self._dfc_label.configure(
-            text="Double-faced card  ·  DFC" if has_back else ""
-        )
+        if show_back and has_back:
+            self._dfc_label.configure(text="← face verso", text_color="#c04828")
+        elif has_back:
+            self._dfc_label.configure(text="Double-faced card  ·  DFC", text_color="#5a5060")
+        else:
+            self._dfc_label.configure(text="", text_color="#5a5060")
 
         # Set code via le nom du fichier (best-effort)
         path = card.image_path or ""
@@ -260,13 +265,17 @@ class CardInspectorPanel(ctk.CTkFrame):
         # Image en thread
         threading.Thread(
             target=self._load_image_bg,
-            args=(card,),
+            args=(card, show_back),
             daemon=True,
         ).start()
 
-    def _load_image_bg(self, card) -> None:
+    def _load_image_bg(self, card, show_back: bool = False) -> None:
         try:
             path = card.image_path
+            if show_back:
+                back_path = getattr(card, "back_image_path", None)
+                if back_path and os.path.isfile(back_path):
+                    path = back_path
             if path.endswith("_1200dpi.png"):
                 native = path.replace("_1200dpi.png", ".png")
                 if os.path.exists(native):

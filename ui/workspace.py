@@ -20,6 +20,7 @@ class Workspace(ctk.CTkFrame):
     BASE_SPACING_X = 360
     BASE_SPACING_Y = 490
     BACK_GAP = 8               # px entre recto et verso (avant zoom)
+    BACKS_SCALE = 0.75         # échelle des cartes en mode Faces+Backs (≈4 paires/rangée)
     START_Y = 50
     SCROLL_PADDING = 40
     ZOOM_LEVELS = [1.0, 1.5, 2.0]
@@ -202,11 +203,13 @@ class Workspace(ctk.CTkFrame):
 
     @property
     def _card_w(self) -> int:
-        return int(self.BASE_CARD_W * self._zoom)
+        scale = self.BACKS_SCALE if self._show_backs else 1.0
+        return int(self.BASE_CARD_W * self._zoom * scale)
 
     @property
     def _card_h(self) -> int:
-        return int(self.BASE_CARD_H * self._zoom)
+        scale = self.BACKS_SCALE if self._show_backs else 1.0
+        return int(self.BASE_CARD_H * self._zoom * scale)
 
     @property
     def _back_gap(self) -> int:
@@ -215,13 +218,15 @@ class Workspace(ctk.CTkFrame):
     @property
     def _spacing_x(self) -> int:
         if self._show_backs:
-            # Deux cartes côte à côte + gap + marge entre paires
-            return int((self.BASE_CARD_W * 2 + self.BACK_GAP + 60) * self._zoom)
+            cw = int(self.BASE_CARD_W * self._zoom * self.BACKS_SCALE)
+            gap = int(self.BACK_GAP * self._zoom)
+            return cw * 2 + gap + int(20 * self._zoom)
         return int(self.BASE_SPACING_X * self._zoom)
 
     @property
     def _spacing_y(self) -> int:
-        return int(self.BASE_SPACING_Y * self._zoom)
+        scale = self.BACKS_SCALE if self._show_backs else 1.0
+        return int(self.BASE_SPACING_Y * self._zoom * scale)
 
     def _set_zoom(self, factor: float) -> None:
         self._zoom = factor
@@ -661,7 +666,7 @@ class Workspace(ctk.CTkFrame):
                     if moved < self.CLICK_THRESHOLD:
                         if hasattr(self.app, "inspector"):
                             card = self.canvas_items[self.selected_item]["card"]
-                            self.app.inspector.show_card(card)
+                            self.app.inspector.show_card(card, show_back=self._last_clicked_back)
 
         self.selected_item = None
 

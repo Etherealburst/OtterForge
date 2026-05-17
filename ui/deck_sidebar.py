@@ -46,6 +46,16 @@ class DeckSidebar(ctk.CTkFrame):
         filter_frame.pack(fill="x", padx=8, pady=(0, 4))
 
         self._filter_var = ctk.StringVar()
+
+        self._filter_clear_btn = ctk.CTkButton(
+            filter_frame, text="×", width=22, height=22,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent", hover_color="#922b21",
+            text_color="#252030",
+            command=lambda: self._filter_var.set(""),
+        )
+        self._filter_clear_btn.pack(side="right", padx=(0, 4), pady=3)
+
         self._filter_entry = ctk.CTkEntry(
             filter_frame,
             textvariable=self._filter_var,
@@ -57,12 +67,20 @@ class DeckSidebar(ctk.CTkFrame):
             text_color="#f0ece4",
             placeholder_text_color="#5a5060",
         )
-        self._filter_entry.pack(fill="x", padx=6, pady=3)
-        self._filter_var.trace_add("write", lambda *_: self.refresh())
+        self._filter_entry.pack(side="left", fill="x", expand=True, padx=(6, 0), pady=3)
+        self._filter_var.trace_add("write", self._on_filter_change)
 
         # ── Liste des cartes ─────────────────────────────────────────────────
         self.list_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.list_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+
+    def _on_filter_change(self, *_) -> None:
+        has_text = bool(self._filter_var.get())
+        self._filter_clear_btn.configure(
+            text_color="#c4bfb8" if has_text else "#252030",
+            hover_color="#922b21" if has_text else "#1a1820",
+        )
+        self.refresh()
 
     def refresh(self) -> None:
         for widget in self.list_frame.winfo_children():
