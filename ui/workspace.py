@@ -20,7 +20,7 @@ class Workspace(ctk.CTkFrame):
     BASE_SPACING_X = 360
     BASE_SPACING_Y = 490
     BACK_GAP = 8               # px entre recto et verso (avant zoom)
-    BACKS_SCALE = 0.75         # échelle des cartes en mode Faces+Backs (≈4 paires/rangée)
+    BACKS_SCALE = 0.88         # échelle des cartes en mode Faces+Backs (≈4 paires/rangée)
     START_Y = 50
     SCROLL_PADDING = 40
     ZOOM_LEVELS = [1.0, 1.5, 2.0]
@@ -346,8 +346,12 @@ class Workspace(ctk.CTkFrame):
         # Auto-layout : nombre de colonnes selon la largeur du canvas
         cards_per_row = max(1, canvas_w // spacing_x)
 
-        # Centrage horizontal : on centre la grille dans la zone visible
-        row_content_w = (min(cards_per_row, len(cards)) - 1) * spacing_x + card_w
+        # Centrage horizontal : largeur réelle de la rangée (inclut le verso de la dernière paire)
+        n_in_row = min(cards_per_row, len(cards))
+        if show_backs:
+            row_content_w = (n_in_row - 1) * spacing_x + card_w * 2 + back_gap
+        else:
+            row_content_w = (n_in_row - 1) * spacing_x + card_w
         start_x = max(20, (canvas_w - row_content_w) // 2)
         start_y = self.START_Y
 

@@ -17,9 +17,9 @@ class DeckSidebar(ctk.CTkFrame):
         self.app = app
         self.pack_propagate(False)
 
-        # ── Header ──────────────────────────────────────────────────────────
+        # ── Header compact ───────────────────────────────────────────────────
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=0, pady=(10, 4))
+        header.pack(fill="x", padx=0, pady=(3, 0))
 
         ctk.CTkFrame(header, width=3, fg_color="#c04828",
                      corner_radius=2).pack(side="left", fill="y", padx=(8, 6))
@@ -34,12 +34,12 @@ class DeckSidebar(ctk.CTkFrame):
         self.total_label = ctk.CTkLabel(
             header, text="",
             text_color="#c4bfb8",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=10),
         )
         self.total_label.pack(side="right", padx=8)
 
         ctk.CTkFrame(self, height=1, fg_color="#1a1820",
-                     corner_radius=0).pack(fill="x", padx=8, pady=(0, 4))
+                     corner_radius=0).pack(fill="x", padx=8, pady=(2, 2))
 
         # ── Barre de filtre ─────────────────────────────────────────────────
         filter_frame = ctk.CTkFrame(self, fg_color="#131118", corner_radius=4)
