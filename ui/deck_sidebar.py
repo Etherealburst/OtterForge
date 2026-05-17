@@ -222,6 +222,7 @@ class DeckSidebar(ctk.CTkFrame):
         self._sync()
 
     def _sync(self) -> None:
+        self.app._push_undo_snapshot()
         deck = self.app.deck_manager.active_deck()
         if deck:
             self.app.workspace.load_cards(deck.cards)

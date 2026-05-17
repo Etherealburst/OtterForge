@@ -97,9 +97,10 @@
 
 ### Fonctionnalités
 
-- [ ] **Annuler / Rétablir (Ctrl+Z / Ctrl+Y)**
+- [x] **Annuler / Rétablir (Ctrl+Z / Ctrl+Y)**
   Implémenter un historique simple des actions deck (ajout, suppression, changement de count).
   Stack d'états — pas besoin d'undo sur l'upscaling.
+  -> Complété le 2026-05-17 (session auto)
 
 - [x] **Export vers format texte (Moxfield / MTGA)**
   Bouton "Export TXT" dans la toolbar qui génère un fichier `NomDeck.txt`

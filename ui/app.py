@@ -86,6 +86,12 @@ class OtterForgeApp(ctk.CTk):
         # Préférences utilisateur persistées (MPC dialog, etc.)
         self._user_config = self._load_user_config()
 
+        # Historique Undo/Redo — snapshots de l'état du deck actif
+        self._undo_stack: list[tuple[int, list[dict]]] = []  # (deck_index, cards_snapshot)
+        self._redo_stack: list[tuple[int, list[dict]]] = []
+        _MAX_UNDO = 20
+        self._max_undo = _MAX_UNDO
+
         # Image d'endos — restaurée depuis le deck actif s'il en a une
         _active = self.deck_manager.active_deck()
         self.deck_back_image: str | None = _active.back_image if _active else None
@@ -153,6 +159,8 @@ class OtterForgeApp(ctk.CTk):
         self.bind_all("<Control-i>", lambda e: self.import_txt_deck())
         self.bind_all("<Control-s>", lambda e: self.save_deck())
         self.bind_all("<Control-p>", lambda e: self.export_print_sheets())
+        self.bind_all("<Control-z>", lambda e: self._undo())
+        self.bind_all("<Control-y>", lambda e: self._redo())
 
     # ======================================================================
     # RECHERCHE ET AJOUT DE CARTE — THREAD-SAFE
@@ -269,6 +277,7 @@ class OtterForgeApp(ctk.CTk):
 
     def _on_search_success(self, cards: list, target_deck_index: int = 0) -> None:
         """Appelé dans le thread UI après une recherche et upscaling réussis."""
+        self._push_undo_snapshot()
         for card in cards:
             self.deck_manager.add_card(card, deck_index=target_deck_index)
 
@@ -420,6 +429,7 @@ class OtterForgeApp(ctk.CTk):
     def _on_import_complete(self, cards: list, skipped: list) -> None:
         """Appelé dans le thread UI après l'import TXT."""
         if cards:
+            self._push_undo_snapshot()
             self.deck_manager.add_cards_bulk(cards)
             self._refresh_ui()  # appelle _update_statusbar_info
             self.inspector.refresh_stats()
@@ -756,6 +766,62 @@ class OtterForgeApp(ctk.CTk):
         deck = self.deck_manager.active_deck()
         self.deck_back_image = deck.back_image if deck else None
         self.workspace.update_back_preview(self.deck_back_image)
+
+    # ======================================================================
+    # UNDO / REDO
+    # ======================================================================
+
+    def _push_undo_snapshot(self) -> None:
+        """Capture l'état actuel du deck actif dans le stack undo."""
+        deck = self.deck_manager.active_deck()
+        if not deck:
+            return
+        snapshot = [c.to_dict() for c in deck.cards]
+        self._undo_stack.append((self.deck_manager.active_index, snapshot))
+        if len(self._undo_stack) > self._max_undo:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def _restore_snapshot(self, deck_index: int, snapshot: list[dict]) -> None:
+        """Restaure un snapshot de deck."""
+        import copy
+        from engine.models import Card
+        if deck_index >= len(self.deck_manager.decks):
+            return
+        deck = self.deck_manager.decks[deck_index]
+        cards = []
+        for d in snapshot:
+            c = Card(d["name"], d["image_path"])
+            c.count = d.get("count", 1)
+            c.back_image_path = d.get("back_image_path")
+            cards.append(c)
+        deck.cards = cards
+        self.deck_manager.set_active(deck_index)
+        self.deck_tabs.render()
+        self._refresh_ui()
+        self._auto_save()
+
+    def _undo(self) -> None:
+        if not self._undo_stack:
+            self.statusbar.set_status("Rien à annuler")
+            return
+        deck = self.deck_manager.active_deck()
+        if deck:
+            self._redo_stack.append((self.deck_manager.active_index, [c.to_dict() for c in deck.cards]))
+        deck_index, snapshot = self._undo_stack.pop()
+        self._restore_snapshot(deck_index, snapshot)
+        self.statusbar.set_status("Annulé (Ctrl+Z)")
+
+    def _redo(self) -> None:
+        if not self._redo_stack:
+            self.statusbar.set_status("Rien à rétablir")
+            return
+        deck = self.deck_manager.active_deck()
+        if deck:
+            self._undo_stack.append((self.deck_manager.active_index, [c.to_dict() for c in deck.cards]))
+        deck_index, snapshot = self._redo_stack.pop()
+        self._restore_snapshot(deck_index, snapshot)
+        self.statusbar.set_status("Rétabli (Ctrl+Y)")
 
     def _refresh_ui(self) -> None:
         """Met à jour le workspace et la sidebar selon le deck actif."""
