@@ -144,10 +144,11 @@
   Lancer plusieurs subprocess en parallèle (`max_workers=2` pour ne pas saturer le GPU).
   Si Real-ESRGAN n'est pas dispo, `fit_native_to_mpc_300` est déjà rapide (Pillow pur).
 
-- [ ] **Cache hit early-exit par chemin**
+- [x] **Cache hit early-exit par chemin**
   Dans `_search_worker` et `_import_txt_worker`, vérifier l'existence de `_1200dpi.png`
   ou `_mpc300.png` AVANT d'appeler Scryfall si l'image est déjà dans le cache local.
   Economise l'appel réseau complet pour les cartes déjà présentes.
+  -> Complété le 2026-05-17 (session auto) — cache JSON par set+CN dans `_meta_{set}_{cn}.json`; get_card_by_set retourne le cache local sans appel réseau; get_card sauvegarde le résultat pour accélérer les appels futurs exacts.
 
 - [ ] **Chargement workspace en streaming (affichage progressif)**
   Actuellement `workspace.load_cards()` détruit et recrée tout le canvas à chaque appel.

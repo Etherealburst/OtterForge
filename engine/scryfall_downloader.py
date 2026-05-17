@@ -9,11 +9,14 @@ Endpoints supportés :
 """
 
 import os
+import json
 import requests
 
 
 SCRYFALL_API_NAMED = "https://api.scryfall.com/cards/named"
 SCRYFALL_API_SET   = "https://api.scryfall.com/cards/{set_code}/{collector_number}"
+
+_META_CACHE_FOLDER = "cache/scryfall"
 
 
 class ScryfallDownloader:
@@ -26,6 +29,7 @@ class ScryfallDownloader:
         """
         Recherche une carte par nom (fuzzy).
         Retourne le JSON Scryfall, ou None si introuvable.
+        Le résultat est mis en cache par set+CN pour accélérer les appels futurs exacts.
         """
         try:
             response = requests.get(
@@ -34,22 +38,49 @@ class ScryfallDownloader:
                 timeout=10,
             )
             response.raise_for_status()
-            return response.json()
-
+            card_json = response.json()
         except requests.exceptions.HTTPError as e:
             print(f"[ScryfallDownloader] Carte introuvable : {name!r} — {e}")
             return None
-
         except requests.exceptions.RequestException as e:
             print(f"[ScryfallDownloader] Erreur réseau : {e}")
             return None
+
+        set_code = card_json.get("set", "")
+        collector = card_json.get("collector_number", "")
+        if set_code and collector:
+            meta_path = os.path.join(
+                _META_CACHE_FOLDER,
+                f"_meta_{set_code.lower()}_{collector}.json",
+            )
+            if not os.path.exists(meta_path):
+                try:
+                    os.makedirs(_META_CACHE_FOLDER, exist_ok=True)
+                    with open(meta_path, "w", encoding="utf-8") as f:
+                        json.dump(card_json, f, ensure_ascii=False)
+                except Exception:
+                    pass
+
+        return card_json
 
     def get_card_by_set(self, set_code: str, collector_number: str) -> dict | None:
         """
         Recherche une carte par code de set et numéro de collector.
         Ex : get_card_by_set("sld", "1917")
         Retourne le JSON Scryfall, ou None si introuvable.
+        Résultat mis en cache local (_meta_{set}_{cn}.json) pour éviter les appels réseau répétés.
         """
+        meta_path = os.path.join(
+            _META_CACHE_FOLDER,
+            f"_meta_{set_code.lower()}_{collector_number}.json",
+        )
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+
         url = SCRYFALL_API_SET.format(
             set_code=set_code.lower(),
             collector_number=collector_number,
@@ -57,15 +88,22 @@ class ScryfallDownloader:
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
-            return response.json()
-
+            card_json = response.json()
         except requests.exceptions.HTTPError as e:
             print(f"[ScryfallDownloader] Carte introuvable : s:{set_code} cn:{collector_number} — {e}")
             return None
-
         except requests.exceptions.RequestException as e:
             print(f"[ScryfallDownloader] Erreur réseau : {e}")
             return None
+
+        try:
+            os.makedirs(_META_CACHE_FOLDER, exist_ok=True)
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(card_json, f, ensure_ascii=False)
+        except Exception:
+            pass
+
+        return card_json
 
     def download_image(self, card_json: dict, folder: str = "cache/scryfall") -> str | None:
         """
