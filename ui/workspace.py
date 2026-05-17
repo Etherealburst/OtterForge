@@ -19,10 +19,7 @@ class Workspace(ctk.CTkFrame):
     BASE_CARD_H = 420
     BASE_SPACING_X = 360
     BASE_SPACING_Y = 490
-    CARDS_PER_ROW = 5
-    CARDS_PER_ROW_BACKS = 3   # rangées plus larges en mode Face+Back
     BACK_GAP = 8               # px entre recto et verso (avant zoom)
-    START_X = 50
     START_Y = 50
     SCROLL_PADDING = 40
     ZOOM_LEVELS = [1.0, 1.5, 2.0]
@@ -43,6 +40,8 @@ class Workspace(ctk.CTkFrame):
         self._find_highlight: int | None = None
         self._all_selected: bool = False
         self._selection_rects: list = []
+        self._resize_after_id = None
+        self._last_canvas_w: int = 0
 
         # ------------------------------------------------------------------
         # BARRE DE ZOOM + CONTRÔLES
@@ -167,8 +166,6 @@ class Workspace(ctk.CTkFrame):
         self._drag_origin_y = 0
         self._context_menu = None
         self._image_refs: list = []
-        self._preview_items: list = []
-        self._preview_image_ref = None
 
         # ------------------------------------------------------------------
         # BINDINGS
@@ -185,6 +182,7 @@ class Workspace(ctk.CTkFrame):
         self.canvas.bind("<Button-4>", self._on_mousewheel)
         self.canvas.bind("<Button-5>", self._on_mousewheel)
         self.canvas.bind("<Shift-MouseWheel>", self._on_mousewheel_x)
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
 
         self.canvas.focus_set()
 
@@ -214,10 +212,6 @@ class Workspace(ctk.CTkFrame):
     @property
     def _spacing_y(self) -> int:
         return int(self.BASE_SPACING_Y * self._zoom)
-
-    @property
-    def _cards_per_row(self) -> int:
-        return self.CARDS_PER_ROW_BACKS if self._show_backs else self.CARDS_PER_ROW
 
     def _set_zoom(self, factor: float) -> None:
         self._zoom = factor
@@ -287,7 +281,6 @@ class Workspace(ctk.CTkFrame):
 
     def _start_progressive_load(self, cards) -> None:
         """Vide le canvas immédiatement, puis charge les cartes via un thread + queue."""
-        self._close_card_preview()
         self.canvas.delete("all")
         self.cards = list(cards)
         self.canvas_items.clear()
@@ -303,7 +296,7 @@ class Workspace(ctk.CTkFrame):
         self._selection_rects.clear()  # canvas.delete("all") efface déjà les rects
 
         if not self.cards:
-            self._update_scrollregion(self.START_X, self.START_Y)
+            self._update_scrollregion(50, self.START_Y)
             return
 
         # Nouvelle queue propre pour ce chargement (annule les items de l'ancienne)
@@ -312,22 +305,39 @@ class Workspace(ctk.CTkFrame):
         version = self._load_version
         self._back_item_map.clear()
 
+        # Capture canvas width + spacing sur le main thread (thread-safe)
+        canvas_w = max(self.canvas.winfo_width(), 500)
+        spacing_x = self._spacing_x
+        card_w = self._card_w
+
         self.app.statusbar.show_indeterminate("Chargement des cartes...")
         threading.Thread(
             target=self._card_load_worker,
-            args=(list(self.cards), version),
+            args=(list(self.cards), version, canvas_w, spacing_x, card_w),
             daemon=True,
         ).start()
         # Lance le polling sur le main thread (40 ms ≈ 25 fps)
         self.after(40, self._poll_render_queue, version)
 
-    def _card_load_worker(self, cards, version: int) -> None:
+    def _card_load_worker(self, cards, version: int,
+                          canvas_w: int, spacing_x: int, card_w: int) -> None:
         """Thread : charge chaque image PIL et la dépose dans la queue."""
-        x, y = self.START_X, self.START_Y
-        max_x, max_y = self.START_X, self.START_Y
         show_backs = self._show_backs
         global_back = self.app.deck_back_image
-        cards_per_row = self._cards_per_row
+        card_h = self._card_h
+        spacing_y = self._spacing_y
+        back_gap = self._back_gap
+
+        # Auto-layout : nombre de colonnes selon la largeur du canvas
+        cards_per_row = max(1, canvas_w // spacing_x)
+
+        # Centrage horizontal : on centre la grille dans la zone visible
+        row_content_w = (min(cards_per_row, len(cards)) - 1) * spacing_x + card_w
+        start_x = max(20, (canvas_w - row_content_w) // 2)
+        start_y = self.START_Y
+
+        x, y = start_x, start_y
+        max_x, max_y = start_x, start_y
 
         for i, card in enumerate(cards):
             if version != self._load_version:
@@ -340,45 +350,36 @@ class Workspace(ctk.CTkFrame):
                     original = display_path.replace("_1200dpi.png", ".png")
                     if os.path.exists(original):
                         display_path = original
-                img = Image.open(display_path).resize(
-                    (self._card_w, self._card_h), Image.LANCZOS
-                )
+                img = Image.open(display_path).resize((card_w, card_h), Image.LANCZOS)
 
                 back_img = None
                 if show_backs:
-                    # 1. Endos spécifique à la carte (DFC face1 ou override manuel)
                     back_path = getattr(card, "back_image_path", None)
-                    # 2. Endos global du deck
                     if back_path is None:
                         back_path = global_back
-
-                    # Fallback : si l'upscalé n'existe pas, essayer le PNG natif
                     if back_path and not os.path.isfile(back_path) and back_path.endswith("_1200dpi.png"):
                         native = back_path.replace("_1200dpi.png", ".png")
                         if os.path.isfile(native):
                             back_path = native
-
                     if back_path and os.path.isfile(back_path):
                         try:
-                            back_img = Image.open(back_path).resize(
-                                (self._card_w, self._card_h), Image.LANCZOS
-                            )
+                            back_img = Image.open(back_path).resize((card_w, card_h), Image.LANCZOS)
                         except Exception:
                             pass
                     if back_img is None:
-                        back_img = Image.new("RGB", (self._card_w, self._card_h), (35, 35, 35))
+                        back_img = Image.new("RGB", (card_w, card_h), (35, 35, 35))
 
                 self._render_queue.put(("card", card, img, back_img, cx, cy))
             except Exception as e:
                 print(f"[Workspace] Erreur chargement {card.name!r} : {e}")
 
-            item_w = self._card_w * 2 + self._back_gap if show_backs else self._card_w
+            item_w = card_w * 2 + back_gap if show_backs else card_w
             max_x = max(max_x, cx + item_w)
-            max_y = max(max_y, cy + self._card_h)
-            x += self._spacing_x
+            max_y = max(max_y, cy + card_h)
+            x += spacing_x
             if (i + 1) % cards_per_row == 0:
-                x = self.START_X
-                y += self._spacing_y
+                x = start_x
+                y += spacing_y
 
         self._render_queue.put(("done", max_x, max_y))
 
@@ -585,10 +586,6 @@ class Workspace(ctk.CTkFrame):
         return found if found in self.canvas_items else None
 
     def _on_click(self, event) -> None:
-        if self._preview_items:
-            self._close_card_preview()
-            return
-
         if self._all_selected:
             self._clear_selection()
 
@@ -650,9 +647,8 @@ class Workspace(ctk.CTkFrame):
                     data["x"] = sx
                     data["y"] = sy
 
-                    # Clic pur → afficher la preview + mettre à jour l'inspecteur
+                    # Clic pur → envoie la carte à l'inspecteur (panneau droit)
                     if moved < self.CLICK_THRESHOLD:
-                        self._show_card_preview(self.selected_item, show_back=self._last_clicked_back)
                         if hasattr(self.app, "inspector"):
                             card = self.canvas_items[self.selected_item]["card"]
                             self.app.inspector.show_card(card)
@@ -665,7 +661,6 @@ class Workspace(ctk.CTkFrame):
 
     def _on_escape(self, event) -> None:
         self._clear_selection()
-        self._close_card_preview()
 
     def _on_select_all(self, event=None) -> None:
         """Sélectionne toutes les cartes visibles (Ctrl+A)."""
@@ -723,97 +718,23 @@ class Workspace(ctk.CTkFrame):
             self._delete_selected()
 
     # ------------------------------------------------------------------
-    # CARD PREVIEW (overlay canvas centré sur la zone visible)
+    # RESIZE — auto-relayout quand le canvas change de taille
     # ------------------------------------------------------------------
 
-    def _get_back_path(self, card) -> str | None:
-        """Retourne le chemin de l'image endos pour une carte donnée."""
-        # 1. Endos spécifique à la carte (DFC face1 ou override manuel)
-        card_back = getattr(card, "back_image_path", None)
-        if card_back:
-            if os.path.isfile(card_back):
-                return card_back
-            # Fallback natif si l'upscalé n'existe pas
-            if card_back.endswith("_1200dpi.png"):
-                native = card_back.replace("_1200dpi.png", ".png")
-                if os.path.isfile(native):
-                    return native
-        # 2. Endos global du deck
-        global_back = self.app.deck_back_image
-        if global_back and os.path.isfile(global_back):
-            return global_back
-        return None
-
-    def _show_card_preview(self, item, show_back: bool = False) -> None:
-        self._close_card_preview()
-        data = self.canvas_items.get(item)
-        if not data:
+    def _on_canvas_resize(self, event=None) -> None:
+        new_w = event.width if event else self.canvas.winfo_width()
+        if abs(self._last_canvas_w - new_w) < 30:
             return
-        card = data["card"]
+        if self._resize_after_id:
+            self.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.after(400, self._on_resize_done)
 
-        try:
-            if show_back:
-                back_path = self._get_back_path(card)
-                if back_path:
-                    display_path = back_path
-                    label_text = f"{card.name}  [BACK]"
-                else:
-                    # Aucun endos disponible — afficher la face quand même
-                    display_path = card.image_path
-                    label_text = card.name
-            else:
-                display_path = card.image_path
-                if display_path.endswith("_1200dpi.png"):
-                    original = display_path.replace("_1200dpi.png", ".png")
-                    if os.path.exists(original):
-                        display_path = original
-                label_text = card.name
-
-            canvas_h = self.canvas.winfo_height()
-            canvas_w = self.canvas.winfo_width()
-            preview_h = max(420, int(canvas_h * 0.82))
-            preview_w = int(preview_h * self.BASE_CARD_W / self.BASE_CARD_H)
-
-            img = Image.open(display_path).resize((preview_w, preview_h), Image.LANCZOS)
-            tk_img = ImageTk.PhotoImage(img)
-            self._preview_image_ref = tk_img
-
-            # Centre dans la zone visible (coordonnées canvas)
-            cx = self.canvas.canvasx(canvas_w // 2)
-            cy = self.canvas.canvasy(canvas_h // 2)
-
-            pad = 16
-            name_h = 30
-
-            bg = self.canvas.create_rectangle(
-                cx - preview_w // 2 - pad,
-                cy - preview_h // 2 - pad,
-                cx + preview_w // 2 + pad,
-                cy + preview_h // 2 + pad + name_h,
-                fill="#0d0c0e", outline="#252030", width=2,
-            )
-            img_item = self.canvas.create_image(cx, cy, image=tk_img, anchor="center")
-            name_item = self.canvas.create_text(
-                cx, cy + preview_h // 2 + name_h // 2 + 2,
-                text=label_text, fill="white", font=("Arial", 13, "bold"),
-            )
-            hint_item = self.canvas.create_text(
-                cx, cy - preview_h // 2 - pad // 2,
-                text="Cliquer pour fermer  ·  Échap",
-                fill="#5a5060", font=("Arial", 9),
-            )
-
-            self._preview_items = [bg, img_item, name_item, hint_item]
-
-        except Exception as e:
-            print(f"[Workspace] Erreur preview {card.name!r} : {e}")
-            self._preview_items = []
-
-    def _close_card_preview(self) -> None:
-        for it in self._preview_items:
-            self.canvas.delete(it)
-        self._preview_items = []
-        self._preview_image_ref = None
+    def _on_resize_done(self) -> None:
+        self._resize_after_id = None
+        self._last_canvas_w = self.canvas.winfo_width()
+        deck = self.app.deck_manager.active_deck()
+        if deck and deck.cards:
+            self._start_progressive_load(deck.cards)
 
     # ------------------------------------------------------------------
     # MENU CONTEXTUEL
@@ -821,7 +742,6 @@ class Workspace(ctk.CTkFrame):
 
     def _show_context_menu(self, event) -> None:
         self._close_context_menu()
-        self._close_card_preview()
 
         found = self._resolve_item(event)
         if found is None:
@@ -846,12 +766,13 @@ class Workspace(ctk.CTkFrame):
 
         font = ctk.CTkFont(size=13)
         kw = dict(font=font, width=160, height=32, anchor="w")
-        ctk.CTkButton(frame, text="Remove",        command=_cmd(self._delete_selected),        **kw).pack(padx=6, pady=(6, 2))
-        ctk.CTkButton(frame, text="+1",            command=_cmd(lambda: self._modify_qty(1)),  **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="-1",            command=_cmd(lambda: self._modify_qty(-1)), **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="Change image",  command=_cmd(self._change_card_image),      **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="Set Card Back", command=_cmd(self._set_card_back),          **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="Export image",  command=_cmd(self._export_card_image),      **kw).pack(padx=6, pady=(2, 6))
+        ctk.CTkButton(frame, text="  Remove",        command=_cmd(self._delete_selected),        **kw).pack(padx=6, pady=(6, 2))
+        ctk.CTkButton(frame, text="  +1",            command=_cmd(lambda: self._modify_qty(1)),  **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  -1",            command=_cmd(lambda: self._modify_qty(-1)), **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Open file",     command=_cmd(self._open_card_file),         **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Change image",  command=_cmd(self._change_card_image),      **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Set Card Back", command=_cmd(self._set_card_back),          **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Export image",  command=_cmd(self._export_card_image),      **kw).pack(padx=6, pady=(2, 6))
 
         self._context_menu = popup
 
@@ -958,6 +879,22 @@ class Workspace(ctk.CTkFrame):
         deck = self.app.deck_manager.active_deck()
         if deck:
             self.load_cards(deck.cards)
+
+    def _open_card_file(self) -> None:
+        """Ouvre l'image de la carte sélectionnée dans la visionneuse OS."""
+        data = self.canvas_items.get(self.selected_item)
+        if not data:
+            return
+        card = data["card"]
+        path = card.image_path
+        if path.endswith("_1200dpi.png"):
+            native = path.replace("_1200dpi.png", ".png")
+            if os.path.exists(native):
+                path = native
+        try:
+            os.startfile(path)
+        except Exception as e:
+            print(f"[Workspace] Impossible d'ouvrir {path!r} : {e}")
 
     def _export_card_image(self) -> None:
         """Exporte l'image haute résolution de la carte sélectionnée vers un fichier."""

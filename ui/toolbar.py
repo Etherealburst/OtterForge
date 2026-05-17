@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 
 class Toolbar(ctk.CTkFrame):
 
-    HEIGHT = 52
+    HEIGHT = 64
 
     def __init__(self, master):
         super().__init__(master, height=self.HEIGHT, corner_radius=0, fg_color="#0d0c0e")
@@ -56,9 +56,9 @@ class Toolbar(ctk.CTkFrame):
         row = ctk.CTkFrame(deck_grp, fg_color="transparent")
         row.pack(pady=(0, 6))
 
-        _tool_btn(row, "↑ Open",   self.master.load_deck_file,   "Charger un deck JSON")
-        _tool_btn(row, "↓ Save",   self.master.save_deck,        "Sauvegarder le deck actif")
-        _tool_btn(row, "⬇ Import", self.master.import_txt_deck,  "Importer un fichier TXT / Moxfield")
+        _tool_btn(row, "↑  Open",    self.master.load_deck_file,   "Charger un deck JSON")
+        _tool_btn(row, "↓  Save",    self.master.save_deck,        "Sauvegarder le deck actif")
+        _tool_btn(row, "⬇  Import",  self.master.import_txt_deck,  "Importer un fichier TXT / Moxfield")
 
         # ── Séparateur ────────────────────────────────────────────────────
         _vsep(self)
@@ -72,9 +72,9 @@ class Toolbar(ctk.CTkFrame):
         row2 = ctk.CTkFrame(out_grp, fg_color="transparent")
         row2.pack(pady=(0, 6))
 
-        _tool_btn(row2, "⊞ Export",   self.master.export_print_sheets, "Générer les feuilles d'impression")
-        _tool_btn(row2, "◧ Card Back", self.master.choose_card_back,   "Choisir l'image d'endos du deck")
-        _tool_btn(row2, "⬆ MPC",       self.master.upload_to_mpc,      "Uploader sur MakePlayingCards.com")
+        _tool_btn(row2, "⊞  Export",    self.master.export_print_sheets, "Générer les feuilles d'impression")
+        _tool_btn(row2, "◧  Card Back", self.master.choose_card_back,   "Choisir l'image d'endos du deck")
+        _tool_btn(row2, "⬆  MPC",       self.master.upload_to_mpc,      "Uploader sur MakePlayingCards.com")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ def _micro_label(parent, text: str) -> None:
 
 def _tool_btn(parent, text: str, command, tooltip: str = "") -> ctk.CTkButton:
     btn = ctk.CTkButton(
-        parent, text=text, width=90, height=26,
+        parent, text=text, width=104, height=28,
         font=ctk.CTkFont(size=11),
         command=command,
     )

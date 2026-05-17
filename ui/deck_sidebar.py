@@ -81,13 +81,15 @@ class DeckSidebar(ctk.CTkFrame):
         if query:
             cards = [c for c in cards if query in c.name.lower()]
 
-        if not cards and query:
+        if not cards:
+            msg = (f'Aucune carte "{query}"' if query
+                   else "Aucune carte dans ce deck.\nUtilise la barre de recherche\npour en ajouter.")
             ctk.CTkLabel(
-                self.list_frame,
-                text=f'Aucune carte "{query}"',
+                self.list_frame, text=msg,
                 text_color="#5a5060",
                 font=ctk.CTkFont(size=10),
-            ).pack(pady=12)
+                justify="center",
+            ).pack(pady=20)
             return
 
         for card in cards:
