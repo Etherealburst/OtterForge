@@ -139,10 +139,11 @@
   Conserver le `progress_callback` en thread-safe avec un `threading.Lock` sur le compteur.
   -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Paralléliser l'upscaling Real-ESRGAN**
+- [x] **Paralléliser l'upscaling Real-ESRGAN**
   `upscaler.upscale_to_1200dpi()` lance un subprocess bloquant par carte.
   Lancer plusieurs subprocess en parallèle (`max_workers=2` pour ne pas saturer le GPU).
   Si Real-ESRGAN n'est pas dispo, `fit_native_to_mpc_300` est déjà rapide (Pillow pur).
+  -> Complété le 2026-05-17 (session auto) — ThreadPoolExecutor(max_workers=2) en Phase 2 + cache hit early-exit pour _1200dpi.png
 
 - [x] **Cache hit early-exit par chemin**
   Dans `_search_worker` et `_import_txt_worker`, vérifier l'existence de `_1200dpi.png`

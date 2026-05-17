@@ -188,7 +188,46 @@ class BatchImporter:
             for idx, result in pool.map(_download_one, enumerate(parsed_lines)):
                 download_results[idx] = result
 
-        # ── Phase 2 : upscaling séquentiel + construction des résultats ───
+        # ── Phase 2 : upscaling (parallèle max 2 workers) + construction ────
+        # Collecter les tâches d'upscaling en filtrant les cache hits
+        upscale_tasks = []          # [(idx, face_index, raw_path, fname)]
+        final_face_paths: dict = {} # (idx, face_index) → chemin final
+
+        for idx in range(len(parsed_lines)):
+            result = download_results.get(idx)
+            if result is None or (isinstance(result, dict) and "skip" in result):
+                continue
+            card_json, face_paths, parsed = result
+            faces = card_json.get("card_faces", [])
+            for face_index, raw_path in enumerate(face_paths):
+                out_1200 = raw_path.replace(".png", "_1200dpi.png")
+                if upscaler_available:
+                    if os.path.exists(out_1200):
+                        print(f"[BatchImporter] Cache hit 1200dpi : {os.path.basename(out_1200)}")
+                        final_face_paths[(idx, face_index)] = out_1200
+                    else:
+                        fname = (faces[face_index]["name"] if faces and face_index < len(faces)
+                                 else card_json["name"])
+                        upscale_tasks.append((idx, face_index, raw_path, fname))
+                else:
+                    final_face_paths[(idx, face_index)] = self._apply_300dpi_bleed(raw_path)
+
+        # Upscaling parallèle (max 2 pour ne pas saturer le GPU)
+        def _upscale_one(task):
+            idx, face_index, raw_path, fname = task
+            out = raw_path.replace(".png", "_1200dpi.png")
+            try:
+                return idx, face_index, self.upscaler.upscale_to_1200dpi(raw_path, out)
+            except Exception as e:
+                print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {e} — fallback 300 DPI")
+                return idx, face_index, self._apply_300dpi_bleed(raw_path)
+
+        if upscale_tasks:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                for idx, face_index, fp in pool.map(_upscale_one, upscale_tasks):
+                    final_face_paths[(idx, face_index)] = fp
+
+        # Construction des cartes dans l'ordre original
         cards = []
         skipped = []
         for idx in range(len(parsed_lines)):
@@ -202,21 +241,10 @@ class BatchImporter:
 
             card_json, face_paths, parsed = result
             faces = card_json.get("card_faces", [])
-
-            final_paths = []
-            for face_index, raw_path in enumerate(face_paths):
-                fname = (faces[face_index]["name"] if faces and face_index < len(faces) else card_json["name"])
-                if upscaler_available:
-                    try:
-                        fp = self.upscaler.upscale_to_1200dpi(
-                            raw_path, raw_path.replace(".png", "_1200dpi.png"),
-                        )
-                    except Exception as e:
-                        print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {e} — fallback 300 DPI")
-                        fp = self._apply_300dpi_bleed(raw_path)
-                else:
-                    fp = self._apply_300dpi_bleed(raw_path)
-                final_paths.append(fp)
+            final_paths = [final_face_paths[(idx, fi)] for fi in range(len(face_paths))
+                           if (idx, fi) in final_face_paths]
+            if not final_paths:
+                continue
 
             face_name = faces[0]["name"] if faces else card_json["name"]
             card_dict = {
