@@ -223,7 +223,8 @@ class DeckSidebar(ctk.CTkFrame):
         deck = self.app.deck_manager.active_deck()
         if deck:
             self.app.workspace.load_cards(deck.cards)
-        self.refresh()
+        # _on_filter_change met à jour l'état du bouton × ET appelle refresh()
+        self._on_filter_change()
         self.app._auto_save()
         if hasattr(self.app, "inspector"):
             self.app.inspector.refresh_stats()

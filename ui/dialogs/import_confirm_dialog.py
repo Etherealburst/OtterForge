@@ -25,10 +25,13 @@ class ImportConfirmDialog(ctk.CTkToplevel):
         self.transient(master)
 
         master.update_idletasks()
-        px, py = master.winfo_x(), master.winfo_y()
-        pw, ph = master.winfo_width(), master.winfo_height()
         dw, dh = 420, 260
-        self.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+        if master.winfo_viewable():
+            px, py = master.winfo_x(), master.winfo_y()
+            pw, ph = master.winfo_width(), master.winfo_height()
+            self.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+        else:
+            self.geometry(f"{dw}x{dh}")
 
         padx = 28
 

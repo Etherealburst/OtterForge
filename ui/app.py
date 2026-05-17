@@ -52,9 +52,18 @@ class OtterForgeApp(ctk.CTk):
         super().__init__()
 
         self.title("OtterForge")
-        self.geometry("1280x800")
         self.minsize(900, 600)
-        self.after(0, lambda: self.state("zoomed"))  # plein écran après init
+        # Restaure la géométrie sauvegardée, sinon démarre en zoomed
+        saved_geo = self._load_user_config().get("window_geometry")
+        if saved_geo:
+            try:
+                self.geometry(saved_geo)
+            except Exception:
+                self.geometry("1280x800")
+                self.after(0, lambda: self.state("zoomed"))
+        else:
+            self.geometry("1280x800")
+            self.after(0, lambda: self.state("zoomed"))
 
         # ------------------------------------------------------------------
         # ENGINE
@@ -135,6 +144,15 @@ class OtterForgeApp(ctk.CTk):
             self.workspace.load_cards(deck.cards)
         self.sidebar.refresh()
         self.deck_tabs.render()
+        self._update_statusbar_info()
+
+        # ------------------------------------------------------------------
+        # RACCOURCIS CLAVIER GLOBAUX
+        # ------------------------------------------------------------------
+        self.bind_all("<Control-f>", lambda e: self.search.entry.focus_set())
+        self.bind_all("<Control-i>", lambda e: self.import_txt_deck())
+        self.bind_all("<Control-s>", lambda e: self.save_deck())
+        self.bind_all("<Control-p>", lambda e: self.export_print_sheets())
 
     # ======================================================================
     # RECHERCHE ET AJOUT DE CARTE — THREAD-SAFE
@@ -263,6 +281,7 @@ class OtterForgeApp(ctk.CTk):
             self.deck_manager.save_deck_at(target_deck, self._deck_path(target_deck.name))
 
         self.inspector.refresh_stats()
+        self._update_statusbar_info()
         names = " + ".join(c.name for c in cards)
         self.statusbar.hide_progress()
         self.statusbar.set_status(f"Ajouté : {names}")
@@ -372,7 +391,7 @@ class OtterForgeApp(ctk.CTk):
         """Appelé dans le thread UI après l'import TXT."""
         if cards:
             self.deck_manager.add_cards_bulk(cards)
-            self._refresh_ui()
+            self._refresh_ui()  # appelle _update_statusbar_info
             self.inspector.refresh_stats()
 
         status = f"{len(cards)} carte(s) importée(s)"
@@ -613,6 +632,22 @@ class OtterForgeApp(ctk.CTk):
         if deck:
             self.workspace.load_cards(deck.cards)
         self.sidebar.refresh()
+        self._update_statusbar_info()
+
+    def _update_statusbar_info(self) -> None:
+        """Met à jour le label info de la statusbar (cartes + taille cache)."""
+        deck = self.deck_manager.active_deck()
+        card_count = sum(c.count for c in deck.cards) if deck else 0
+        cache_dir = os.path.join("cache", "scryfall")
+        try:
+            cache_bytes = sum(
+                os.path.getsize(os.path.join(cache_dir, f))
+                for f in os.listdir(cache_dir)
+                if os.path.isfile(os.path.join(cache_dir, f))
+            )
+        except Exception:
+            cache_bytes = 0
+        self.statusbar.update_info(card_count, cache_bytes)
 
     # ======================================================================
     # AUTO-SAVE
@@ -663,6 +698,14 @@ class OtterForgeApp(ctk.CTk):
                 return
         if not messagebox.askyesno("Fermer OtterForge", "Fermer OtterForge ?"):
             return
+        try:
+            if self.state() != "zoomed":
+                self._user_config["window_geometry"] = self.geometry()
+            else:
+                self._user_config.pop("window_geometry", None)
+            self._save_user_config()
+        except Exception:
+            pass
         try:
             self.quit()
         except Exception:

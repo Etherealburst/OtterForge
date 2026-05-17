@@ -228,9 +228,10 @@
 
 ### Apparence générale
 
-- [ ] **Persistance de la taille et position de la fenêtre**
+- [x] **Persistance de la taille et position de la fenêtre**
   Sauvegarder `geometry()` dans `config_user.json` à la fermeture
   et restaurer au prochain démarrage. Éviter de partir toujours en `zoomed`.
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Sidebar redimensionnable**
   Permettre de glisser le bord droit de la `DeckSidebar` pour l'élargir/rétrécir.
@@ -240,17 +241,19 @@
   Remplacer les boutons texte purs de la `Toolbar` par des icônes SVG/PNG + texte court.
   Utiliser `Pillow` pour charger des icônes locales ou intégrer `tksvg` / icônes base64.
 
-- [ ] **Raccourcis clavier manquants**
+- [x] **Raccourcis clavier manquants**
   Documenter et implémenter les raccourcis absents :
   - `Ctrl+F` → focus sur la barre de recherche `CardSearch`
   - `Ctrl+I` → ouvre dialog import TXT
   - `Ctrl+S` → sauvegarde manuelle du deck
   - `Ctrl+P` → ouvre le dialog export/impression
   - `Échap` → ferme le dialog ou panel ouvert
+  -> Complété le 2026-05-17 (session auto) — Ctrl+F/I/S/P implémentés
 
-- [ ] **Status bar : plus d'informations**
+- [x] **Status bar : plus d'informations**
   Ajouter à droite de la status bar : nombre de cartes dans le deck actif + taille du cache.
   Format : `42 cartes  •  cache 1.2 GB`
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Compact mode pour les lignes de la sidebar**
   Toggle entre mode normal (lignes avec boutons +/−/×) et mode compact
@@ -258,9 +261,10 @@
 
 ### Workspace
 
-- [ ] **Effet de survol sur les cartes**
+- [x] **Effet de survol sur les cartes**
   Actuellement aucun feedback visuel au survol d'une carte dans le workspace.
   Ajouter une légère surbrillance (outline 1px blanc/orange) au `<Enter>` sur chaque image.
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Clic droit sur une carte → menu contextuel**
   Menu avec options : Inspecter, +1 copie, −1 copie, Supprimer, Voir sur Scryfall (ouvre browser).
@@ -273,9 +277,10 @@
 
 ## Bugs connus / Edge cases
 
-- [ ] **`_confirm_import_dialog` : position incorrecte si fenêtre minimisée**
+- [x] **`_confirm_import_dialog` : position incorrecte si fenêtre minimisée**
   Le centrage utilise `winfo_x()` / `winfo_y()` qui peuvent retourner des valeurs
   incorrectes si la fenêtre principale est minimisée. Ajouter une garde `if self.winfo_viewable()`.
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Séquence rapide add + switch deck**
   `add_cards_bulk` appelle `deck.cards.append()` (corrigé → `add_card`), mais
@@ -283,7 +288,8 @@
   si `_import_txt_worker` se termine après le switch. À protéger avec un lock ou
   en capturant l'index du deck au démarrage du thread.
 
-- [ ] **`DeckSidebar` : le × du filtre reste visible après refresh()**
+- [x] **`DeckSidebar` : le × du filtre reste visible après refresh()**
   Si le filtre est actif et qu'on supprime toutes les cartes filtrées,
   la couleur du × reste `#c4bfb8` (actif) alors que la liste est vide.
   Appeler `_on_filter_change` après `_remove_card` plutôt que juste `refresh()`.
+  -> Complété le 2026-05-17 (session auto)

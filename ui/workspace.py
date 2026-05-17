@@ -171,6 +171,8 @@ class Workspace(ctk.CTkFrame):
         self._back_item_map: dict = {}       # back canvas id → front canvas id
         self._last_clicked_back: bool = False
         self.selected_item = None
+        self._hover_rect: int | None = None
+        self._hover_item: int | None = None
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._drag_origin_x = 0
@@ -194,6 +196,8 @@ class Workspace(ctk.CTkFrame):
         self.canvas.bind("<Button-5>", self._on_mousewheel)
         self.canvas.bind("<Shift-MouseWheel>", self._on_mousewheel_x)
         self.canvas.bind("<Configure>", self._on_canvas_resize)
+        self.canvas.bind("<Motion>", self._on_hover)
+        self.canvas.bind("<Leave>", self._on_hover_leave)
 
         self.canvas.focus_set()
 
@@ -301,6 +305,8 @@ class Workspace(ctk.CTkFrame):
         self.canvas_items.clear()
         self.text_to_card_item.clear()
         self.selected_item = None
+        self._hover_rect = None
+        self._hover_item = None
         self._image_refs.clear()
         # Réinitialise l'état de recherche et de sélection (les items canvas vont changer)
         self._find_matches = []
@@ -565,6 +571,48 @@ class Workspace(ctk.CTkFrame):
         self.canvas.configure(
             scrollregion=(0, 0, max_x + self.SCROLL_PADDING, max_y + self.SCROLL_PADDING)
         )
+
+    # ------------------------------------------------------------------
+    # SURVOL — OUTLINE DE SURBRILLANCE
+    # ------------------------------------------------------------------
+
+    def _on_hover(self, event) -> None:
+        cx = self.canvas.canvasx(event.x)
+        cy = self.canvas.canvasy(event.y)
+        items = self.canvas.find_closest(cx, cy)
+        item = items[0] if items else None
+        if item in self._back_item_map:
+            item = self._back_item_map[item]
+        if item in self.text_to_card_item:
+            item = self.text_to_card_item[item]
+        if item not in self.canvas_items:
+            item = None
+
+        if item == self._hover_item:
+            return
+        self._hover_item = item
+
+        if self._hover_rect is not None:
+            self.canvas.delete(self._hover_rect)
+            self._hover_rect = None
+
+        if item is None:
+            return
+
+        data = self.canvas_items[item]
+        x, y = data["x"], data["y"]
+        cw, ch = self._card_w, self._card_h
+        self._hover_rect = self.canvas.create_rectangle(
+            x - 2, y - 2, x + cw + 2, y + ch + 2,
+            outline="#f0a050", width=2, tags=("hover_rect",),
+        )
+        self.canvas.tag_lower("hover_rect")
+
+    def _on_hover_leave(self, event) -> None:
+        self._hover_item = None
+        if self._hover_rect is not None:
+            self.canvas.delete(self._hover_rect)
+            self._hover_rect = None
 
     # ------------------------------------------------------------------
     # SCROLL — MOLETTE
