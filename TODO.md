@@ -74,9 +74,10 @@
   Permettre de glisser-déposer une image PNG locale directement dans le workspace
   pour créer une carte custom (nom saisi manuellement).
 
-- [ ] **Réorganisation des cartes dans la sidebar**
+- [x] **Réorganisation des cartes dans la sidebar**
   Ajouter des boutons ↑ ↓ ou un drag-and-drop dans `DeckSidebar` pour réordonner
   les cartes (l'ordre est aussi celui d'upload sur MPC).
+  -> Complété le 2026-05-17 (session auto) — boutons ↑ ↓ par ligne, désactivés si filtre actif
 
 ### Qualité
 

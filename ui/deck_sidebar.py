@@ -155,15 +155,43 @@ class DeckSidebar(ctk.CTkFrame):
         # Clic sur la ligne → envoie la carte à l'inspecteur
         row.bind("<Button-1>", lambda e, c=card: self._inspect(c))
 
-        truncated = len(card.name) > 17
-        name = card.name[:16] + "…" if truncated else card.name
+        # ── Boutons ↑ ↓ (désactivés si filtre actif) ────────────────────
+        filtering = bool(self._filter_var.get())
+        arrow_color = "#34303e" if filtering else "#5a5060"
+        arrow_hover = "#28252e" if filtering else "#302c3a"
+        arrow_state = "disabled" if filtering else "normal"
+
+        move_frame = ctk.CTkFrame(row, fg_color="transparent")
+        move_frame.pack(side="left", padx=(4, 0), fill="y")
+
+        ctk.CTkButton(
+            move_frame, text="↑", width=16, height=13,
+            font=ctk.CTkFont(size=9),
+            fg_color="transparent", hover_color=arrow_hover,
+            text_color=arrow_color,
+            state=arrow_state,
+            command=lambda c=card: self._move_card(c, -1),
+        ).pack(side="top", pady=(2, 0))
+
+        ctk.CTkButton(
+            move_frame, text="↓", width=16, height=13,
+            font=ctk.CTkFont(size=9),
+            fg_color="transparent", hover_color=arrow_hover,
+            text_color=arrow_color,
+            state=arrow_state,
+            command=lambda c=card: self._move_card(c, 1),
+        ).pack(side="top", pady=(0, 2))
+
+        # ── Nom ─────────────────────────────────────────────────────────
+        truncated = len(card.name) > 14
+        name = card.name[:13] + "…" if truncated else card.name
         name_lbl = ctk.CTkLabel(
             row, text=name, anchor="w",
             font=ctk.CTkFont(size=11),
             text_color="#f0ece4",
             cursor="hand2",
         )
-        name_lbl.pack(side="left", padx=(8, 2), pady=5, expand=True, fill="x")
+        name_lbl.pack(side="left", padx=(2, 2), pady=5, expand=True, fill="x")
         name_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
         if truncated:
             _Tooltip(name_lbl, card.name)
@@ -200,6 +228,20 @@ class DeckSidebar(ctk.CTkFrame):
             text_color="#5a5060",
             command=lambda c=card: self._remove_card(c),
         ).pack(side="left", padx=(4, 0))
+
+    def _move_card(self, card, direction: int) -> None:
+        """direction: -1 = vers le haut, +1 = vers le bas"""
+        deck = self.app.deck_manager.active_deck()
+        if not deck:
+            return
+        idx = next((i for i, c in enumerate(deck.cards) if c is card), None)
+        if idx is None:
+            return
+        new_idx = idx + direction
+        if new_idx < 0 or new_idx >= len(deck.cards):
+            return
+        deck.cards[idx], deck.cards[new_idx] = deck.cards[new_idx], deck.cards[idx]
+        self._sync()
 
     def _inspect(self, card) -> None:
         if hasattr(self.app, "inspector"):
