@@ -9,7 +9,7 @@ import queue
 import tkinter as tk
 import threading
 import customtkinter as ctk
-from tkinter import Scrollbar, messagebox
+from tkinter import messagebox
 from PIL import Image, ImageTk
 
 
@@ -135,10 +135,20 @@ class Workspace(ctk.CTkFrame):
         # ------------------------------------------------------------------
         # SCROLLBARS + CANVAS
         # ------------------------------------------------------------------
-        self.scrollbar_y = Scrollbar(self, orient="vertical")
+        self.scrollbar_y = ctk.CTkScrollbar(
+            self, orientation="vertical",
+            fg_color="#0d0c0e",
+            button_color="#252030",
+            button_hover_color="#5a5060",
+        )
         self.scrollbar_y.pack(side="right", fill="y")
 
-        self.scrollbar_x = Scrollbar(self, orient="horizontal")
+        self.scrollbar_x = ctk.CTkScrollbar(
+            self, orientation="horizontal",
+            fg_color="#0d0c0e",
+            button_color="#252030",
+            button_hover_color="#5a5060",
+        )
         self.scrollbar_x.pack(side="bottom", fill="x")
 
         self.canvas = tk.Canvas(
@@ -148,8 +158,8 @@ class Workspace(ctk.CTkFrame):
         )
         self.canvas.pack(fill="both", expand=True)
 
-        self.scrollbar_y.config(command=self.canvas.yview)
-        self.scrollbar_x.config(command=self.canvas.xview)
+        self.scrollbar_y.configure(command=self.canvas.yview)
+        self.scrollbar_x.configure(command=self.canvas.xview)
 
         # ------------------------------------------------------------------
         # ÉTAT
