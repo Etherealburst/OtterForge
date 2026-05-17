@@ -339,6 +339,36 @@ class OtterForgeApp(ctk.CTk):
         self.statusbar.set_status(f"Deck chargé : {deck.name}")
 
     # ======================================================================
+    # TOOLBAR — EXPORT TXT DECK
+    # ======================================================================
+
+    def export_txt_deck(self) -> None:
+        """Exporte le deck actif en fichier texte au format Moxfield/Arena."""
+        deck = self.deck_manager.active_deck()
+        if not deck or not deck.cards:
+            self.statusbar.set_status("Aucune carte à exporter")
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            initialfile=f"{deck.name}.txt",
+        )
+        if not path:
+            return
+
+        lines = []
+        for card in deck.cards:
+            lines.append(f"{card.count} {card.name}")
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            self.statusbar.set_status(f"Deck exporté : {os.path.basename(path)}")
+        except Exception as e:
+            messagebox.showerror("Erreur export", str(e))
+
+    # ======================================================================
     # TOOLBAR — IMPORT TXT DECK
     # ======================================================================
 
@@ -615,6 +645,107 @@ class OtterForgeApp(ctk.CTk):
         self._upload_in_progress = False
         self.statusbar.hide_progress()
         self.statusbar.set_status("Upload MPC terminé")
+
+    # ======================================================================
+    # TOOLBAR — UPSCALE CACHE BATCH
+    # ======================================================================
+
+    def upscale_cache_batch(self) -> None:
+        """Lance l'upscaling Real-ESRGAN sur toutes les images du cache sans _1200dpi."""
+        if not self.upscaler.is_available():
+            messagebox.showwarning(
+                "Real-ESRGAN introuvable",
+                "Real-ESRGAN n'est pas installé.\nChemin attendu : " + str(
+                    os.path.join(r"C:\Users\Samuel\Documents\MTG\Real-ESGRAN", "realesrgan-ncnn-vulkan.exe")
+                ),
+            )
+            return
+
+        cache_dir = os.path.join("cache", "scryfall")
+        try:
+            all_files = [
+                os.path.join(cache_dir, f)
+                for f in os.listdir(cache_dir)
+                if f.endswith(".png") and not f.endswith("_1200dpi.png") and not f.endswith("_mpc300.png")
+            ]
+        except Exception:
+            all_files = []
+
+        to_upscale = [
+            f for f in all_files
+            if not os.path.exists(f.replace(".png", "_1200dpi.png"))
+        ]
+
+        if not to_upscale:
+            self.statusbar.set_status("Cache déjà upscalé — aucun fichier à traiter")
+            return
+
+        if not messagebox.askyesno(
+            "Upscale cache",
+            f"{len(to_upscale)} image(s) à upscaler.\nCela peut prendre plusieurs minutes.\nContinuer ?",
+        ):
+            return
+
+        self.statusbar.show_progress()
+        total = len(to_upscale)
+
+        def _worker():
+            for i, path in enumerate(to_upscale, 1):
+                label = os.path.basename(path)
+                self.after(0, self.statusbar.set_status, f"Upscaling ({i}/{total}) : {label}")
+                self.after(0, self.statusbar.update_progress, i, total)
+                try:
+                    self.upscaler.upscale_to_1200dpi(path, path.replace(".png", "_1200dpi.png"))
+                except Exception as e:
+                    print(f"[App] Upscaling échoué pour {label} : {e}")
+            self.after(0, self.statusbar.hide_progress)
+            self.after(0, self.statusbar.set_status, f"Upscale terminé : {total} image(s)")
+            self.after(0, self._update_statusbar_info)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    # ======================================================================
+    # TOOLBAR — PURGE CACHE
+    # ======================================================================
+
+    def purge_cache(self) -> None:
+        """Vide le cache Scryfall après confirmation. Affiche la taille actuelle."""
+        cache_dir = os.path.join("cache", "scryfall")
+        try:
+            files = [
+                os.path.join(cache_dir, f)
+                for f in os.listdir(cache_dir)
+                if os.path.isfile(os.path.join(cache_dir, f))
+            ]
+        except Exception:
+            files = []
+
+        total_bytes = sum(os.path.getsize(f) for f in files)
+        if total_bytes >= 1_073_741_824:
+            size_str = f"{total_bytes / 1_073_741_824:.1f} Go"
+        elif total_bytes >= 1_048_576:
+            size_str = f"{total_bytes / 1_048_576:.0f} Mo"
+        else:
+            size_str = f"{total_bytes / 1024:.0f} Ko"
+
+        if not messagebox.askyesno(
+            "Vider le cache",
+            f"Le cache contient {len(files)} fichier(s) ({size_str}).\n\n"
+            "Supprimer tous les fichiers image Scryfall ?\n"
+            "Les images seront re-téléchargées lors du prochain import.",
+        ):
+            return
+
+        deleted = 0
+        for f in files:
+            try:
+                os.remove(f)
+                deleted += 1
+            except Exception:
+                pass
+
+        self._update_statusbar_info()
+        self.statusbar.set_status(f"Cache vidé : {deleted} fichier(s) supprimé(s)")
 
     # ======================================================================
     # SYNC CARD BACK + REFRESH UI

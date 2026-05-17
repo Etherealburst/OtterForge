@@ -56,9 +56,10 @@ class Toolbar(ctk.CTkFrame):
         row = ctk.CTkFrame(deck_grp, fg_color="transparent")
         row.pack(pady=(0, 6))
 
-        _tool_btn(row, "↑  Open",    self.master.load_deck_file,   "Charger un deck JSON")
-        _tool_btn(row, "↓  Save",    self.master.save_deck,        "Sauvegarder le deck actif")
-        _tool_btn(row, "⬇  Import",  self.master.import_txt_deck,  "Importer un fichier TXT / Moxfield")
+        _tool_btn(row, "↑  Open",     self.master.load_deck_file,   "Charger un deck JSON")
+        _tool_btn(row, "↓  Save",     self.master.save_deck,        "Sauvegarder le deck actif")
+        _tool_btn(row, "⬇  Import",   self.master.import_txt_deck,  "Importer un fichier TXT / Moxfield")
+        _tool_btn(row, "≡  TXT",      self.master.export_txt_deck,  "Exporter le deck en fichier texte")
 
         # ── Séparateur ────────────────────────────────────────────────────
         _vsep(self)
@@ -74,7 +75,9 @@ class Toolbar(ctk.CTkFrame):
 
         _tool_btn(row2, "⊞  Export",    self.master.export_print_sheets, "Générer les feuilles d'impression")
         _tool_btn(row2, "◧  Card Back", self.master.choose_card_back,   "Choisir l'image d'endos du deck")
-        _tool_btn(row2, "⬆  MPC",       self.master.upload_to_mpc,      "Uploader sur MakePlayingCards.com")
+        _tool_btn(row2, "⬆  MPC",        self.master.upload_to_mpc,       "Uploader sur MakePlayingCards.com")
+        _tool_btn(row2, "⬆  Upscale",   self.master.upscale_cache_batch, "Upscaler le cache existant (Real-ESRGAN)")
+        _tool_btn(row2, "🗑  Cache",     self.master.purge_cache,         "Vider le cache d'images Scryfall")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

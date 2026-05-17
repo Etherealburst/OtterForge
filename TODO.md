@@ -59,14 +59,16 @@
   Copie profonde du deck + nouveau nom `"NomDeck (copie)"`.
   -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Upscale batch du cache existant**
+- [x] **Upscale batch du cache existant**
   Bouton dans la toolbar "Upscale cache" qui parcourt `cache/scryfall/*.png`
   sans `_1200dpi` correspondant et les upscale en arrière-plan.
   Utile après avoir installé Real-ESRGAN alors que des cartes étaient déjà téléchargées.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Gestion du cache (taille + purge)**
+- [x] **Gestion du cache (taille + purge)**
   Afficher la taille totale de `cache/scryfall/` dans la status bar ou dans un panel settings.
   Bouton "Vider le cache" avec confirmation.
+  -> Complété le 2026-05-17 (session auto) — bouton toolbar + confirmation + status bar
 
 - [ ] **Support d'images custom (non-Scryfall)**
   Permettre de glisser-déposer une image PNG locale directement dans le workspace
@@ -99,9 +101,10 @@
   Implémenter un historique simple des actions deck (ajout, suppression, changement de count).
   Stack d'états — pas besoin d'undo sur l'upscaling.
 
-- [ ] **Export vers format texte (Moxfield / MTGA)**
+- [x] **Export vers format texte (Moxfield / MTGA)**
   Bouton "Export TXT" dans la toolbar qui génère un fichier `NomDeck.txt`
   au format `1 Lightning Bolt (M11) 149` pour chaque carte.
+  -> Complété le 2026-05-17 (session auto) — format `{count} {name}` (set/CN non stockés)
 
 - [ ] **Panel Settings**
   Regrouper dans un dialog `Settings` :
@@ -285,11 +288,12 @@
   incorrectes si la fenêtre principale est minimisée. Ajouter une garde `if self.winfo_viewable()`.
   -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Séquence rapide add + switch deck**
+- [x] **Séquence rapide add + switch deck**
   `add_cards_bulk` appelle `deck.cards.append()` (corrigé → `add_card`), mais
   un import TXT en cours + switch d'onglet peut toujours provoquer une incohérence
   si `_import_txt_worker` se termine après le switch. À protéger avec un lock ou
   en capturant l'index du deck au démarrage du thread.
+  -> Complété le 2026-05-17 (session auto) — target_deck_index capturé au démarrage dans _search_worker
 
 - [x] **`DeckSidebar` : le × du filtre reste visible après refresh()**
   Si le filtre est actif et qu'on supprime toutes les cartes filtrées,
