@@ -15,7 +15,7 @@ class Toolbar(ctk.CTkFrame):
     HEIGHT = 64
 
     def __init__(self, master):
-        super().__init__(master, height=self.HEIGHT, corner_radius=0, fg_color="#0d0c0e")
+        super().__init__(master, height=self.HEIGHT, corner_radius=0, fg_color="#1c1a20")
         self.master = master
         self.pack_propagate(False)
         self._build()
@@ -80,7 +80,7 @@ class Toolbar(ctk.CTkFrame):
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _vsep(parent) -> None:
-    ctk.CTkFrame(parent, width=1, fg_color="#252030").pack(
+    ctk.CTkFrame(parent, width=1, fg_color="#34303e").pack(
         side="left", fill="y", padx=10, pady=10
     )
 
@@ -128,7 +128,7 @@ class _Tooltip:
         self._tip.geometry(f"+{x}+{y}")
         lbl = tk.Label(
             self._tip, text=self._text,
-            bg="#1a1820", fg="#c4bfb8",
+            bg="#28252e", fg="#c4bfb8",
             font=("Arial", 10),
             padx=10, pady=5,
             relief="flat",

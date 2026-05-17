@@ -10,10 +10,10 @@ import customtkinter as ctk
 class StatusBar(ctk.CTkFrame):
 
     def __init__(self, master):
-        super().__init__(master, height=30, corner_radius=0, fg_color="#0d0c0e")
+        super().__init__(master, height=30, corner_radius=0, fg_color="#1c1a20")
         self.pack_propagate(False)
 
-        ctk.CTkFrame(self, height=1, fg_color="#1a1820",
+        ctk.CTkFrame(self, height=1, fg_color="#28252e",
                      corner_radius=0).pack(side="top", fill="x")
 
         self.label = ctk.CTkLabel(

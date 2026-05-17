@@ -13,13 +13,14 @@ class DeckSidebar(ctk.CTkFrame):
     WIDTH = 248
 
     def __init__(self, master, app):
-        super().__init__(master, width=self.WIDTH, corner_radius=0, fg_color="#0d0c0e")
+        super().__init__(master, width=self.WIDTH, corner_radius=0, fg_color="#1c1a20")
         self.app = app
         self.pack_propagate(False)
 
         # ── Header compact ───────────────────────────────────────────────────
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=0, pady=(3, 0))
+        header = ctk.CTkFrame(self, height=14, fg_color="transparent")
+        header.pack(fill="x", padx=0, pady=(1, 0))
+        header.pack_propagate(False)
 
         ctk.CTkFrame(header, width=3, fg_color="#c04828",
                      corner_radius=2).pack(side="left", fill="y", padx=(8, 6))
@@ -38,11 +39,11 @@ class DeckSidebar(ctk.CTkFrame):
         )
         self.total_label.pack(side="right", padx=8)
 
-        ctk.CTkFrame(self, height=1, fg_color="#1a1820",
-                     corner_radius=0).pack(fill="x", padx=8, pady=(2, 2))
+        ctk.CTkFrame(self, height=1, fg_color="#28252e",
+                     corner_radius=0).pack(fill="x", padx=8, pady=(1, 1))
 
         # ── Barre de filtre ─────────────────────────────────────────────────
-        filter_frame = ctk.CTkFrame(self, fg_color="#131118", corner_radius=4)
+        filter_frame = ctk.CTkFrame(self, fg_color="#221f28", corner_radius=4)
         filter_frame.pack(fill="x", padx=8, pady=(0, 4))
 
         self._filter_var = ctk.StringVar()
@@ -51,7 +52,7 @@ class DeckSidebar(ctk.CTkFrame):
             filter_frame, text="×", width=22, height=22,
             font=ctk.CTkFont(size=12),
             fg_color="transparent", hover_color="#922b21",
-            text_color="#252030",
+            text_color="#34303e",
             command=lambda: self._filter_var.set(""),
         )
         self._filter_clear_btn.pack(side="right", padx=(0, 4), pady=3)
@@ -63,7 +64,7 @@ class DeckSidebar(ctk.CTkFrame):
             height=28,
             font=ctk.CTkFont(size=11),
             border_width=0,
-            fg_color="#131118",
+            fg_color="#221f28",
             text_color="#f0ece4",
             placeholder_text_color="#5a5060",
         )
@@ -77,8 +78,8 @@ class DeckSidebar(ctk.CTkFrame):
     def _on_filter_change(self, *_) -> None:
         has_text = bool(self._filter_var.get())
         self._filter_clear_btn.configure(
-            text_color="#c4bfb8" if has_text else "#252030",
-            hover_color="#922b21" if has_text else "#1a1820",
+            text_color="#c4bfb8" if has_text else "#34303e",
+            hover_color="#922b21" if has_text else "#28252e",
         )
         self.refresh()
 
@@ -114,7 +115,7 @@ class DeckSidebar(ctk.CTkFrame):
             self._build_row(card)
 
     def _build_row(self, card) -> None:
-        row = ctk.CTkFrame(self.list_frame, fg_color="#131118", corner_radius=4)
+        row = ctk.CTkFrame(self.list_frame, fg_color="#221f28", corner_radius=4)
         row.pack(fill="x", pady=2, padx=2)
 
         # Clic sur la ligne → envoie la carte à l'inspecteur
@@ -136,7 +137,7 @@ class DeckSidebar(ctk.CTkFrame):
         ctk.CTkButton(
             ctrl, text="−", width=22, height=22,
             font=ctk.CTkFont(size=13),
-            fg_color="#1a1820", hover_color="#221e2c",
+            fg_color="#28252e", hover_color="#302c3a",
             text_color="#c4bfb8",
             command=lambda c=card: self._change_count(c, -1),
         ).pack(side="left", padx=1)
@@ -150,7 +151,7 @@ class DeckSidebar(ctk.CTkFrame):
         ctk.CTkButton(
             ctrl, text="+", width=22, height=22,
             font=ctk.CTkFont(size=13),
-            fg_color="#1a1820", hover_color="#221e2c",
+            fg_color="#28252e", hover_color="#302c3a",
             text_color="#c4bfb8",
             command=lambda c=card: self._change_count(c, 1),
         ).pack(side="left", padx=1)
@@ -158,7 +159,7 @@ class DeckSidebar(ctk.CTkFrame):
         ctk.CTkButton(
             ctrl, text="×", width=22, height=22,
             font=ctk.CTkFont(size=13),
-            fg_color="#1a1820", hover_color="#922b21",
+            fg_color="#28252e", hover_color="#922b21",
             text_color="#5a5060",
             command=lambda c=card: self._remove_card(c),
         ).pack(side="left", padx=(4, 0))

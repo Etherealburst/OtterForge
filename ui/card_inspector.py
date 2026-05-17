@@ -19,7 +19,7 @@ class CardInspectorPanel(ctk.CTkFrame):
     WIDTH = 270
 
     def __init__(self, master, app):
-        super().__init__(master, width=self.WIDTH, corner_radius=0, fg_color="#0d0c0e")
+        super().__init__(master, width=self.WIDTH, corner_radius=0, fg_color="#1c1a20")
         self.app = app
         self.pack_propagate(False)
 
@@ -33,7 +33,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         self._img_size = (img_w, img_h)
 
         self._build_header()
-        ctk.CTkFrame(self, height=1, fg_color="#1a1820",
+        ctk.CTkFrame(self, height=1, fg_color="#28252e",
                      corner_radius=0).pack(fill="x", padx=8, pady=(0, 4))
         self._build_card_pane()
         self._build_stats_pane()
@@ -69,7 +69,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         self._btn_stats = ctk.CTkButton(
             tab_frame, text="STATS", width=52, height=22,
             font=ctk.CTkFont(size=9),
-            fg_color="#1a1820", hover_color="#252030",
+            fg_color="#28252e", hover_color="#34303e",
             command=lambda: self._switch_tab("stats"),
         )
         self._btn_stats.pack(side="left")
@@ -82,12 +82,12 @@ class CardInspectorPanel(ctk.CTkFrame):
             self._stats_pane.pack_forget()
             self._card_pane.pack(fill="both", expand=True)
             self._btn_card.configure(fg_color="#c04828", hover_color="#a83820")
-            self._btn_stats.configure(fg_color="#1a1820", hover_color="#252030")
+            self._btn_stats.configure(fg_color="#28252e", hover_color="#34303e")
         else:
             self._card_pane.pack_forget()
             self._stats_pane.pack(fill="both", expand=True)
             self._btn_stats.configure(fg_color="#c04828", hover_color="#a83820")
-            self._btn_card.configure(fg_color="#1a1820", hover_color="#252030")
+            self._btn_card.configure(fg_color="#28252e", hover_color="#34303e")
             self._build_stats()
 
     # ── Card pane ─────────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         # Image — placeholder initial
         self._img_label = ctk.CTkLabel(
             self._card_pane, text="",
-            fg_color="#131118", corner_radius=6,
+            fg_color="#221f28", corner_radius=6,
             width=self._img_size[0], height=self._img_size[1],
         )
         self._img_label.pack(padx=12, pady=(4, 8))
@@ -216,7 +216,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         ).pack(side="left")
 
     def _stat_row(self, label: str, value, accent: bool = False) -> None:
-        row = ctk.CTkFrame(self._stats_pane, fg_color="#131118", corner_radius=4)
+        row = ctk.CTkFrame(self._stats_pane, fg_color="#221f28", corner_radius=4)
         row.pack(fill="x", pady=2, padx=4)
         ctk.CTkLabel(
             row, text=label, font=ctk.CTkFont(size=11),

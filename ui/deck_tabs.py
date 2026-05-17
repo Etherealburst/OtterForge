@@ -14,7 +14,7 @@ class DeckTabs(ctk.CTkFrame):
     MAX_VISIBLE = 4   # nombre max d'onglets visibles simultanément
 
     def __init__(self, master):
-        super().__init__(master, height=36, corner_radius=0, fg_color="#0d0c0e")
+        super().__init__(master, height=36, corner_radius=0, fg_color="#1c1a20")
         self.master = master
         self.pack_propagate(False)
         self.buttons: list[ctk.CTkButton] = []
@@ -35,7 +35,7 @@ class DeckTabs(ctk.CTkFrame):
         self._tab_offset = max(0, min(self._tab_offset, max(0, total - self.MAX_VISIBLE)))
 
         # ── Décorations gauche ────────────────────────────────────────────
-        ctk.CTkFrame(self, width=3, fg_color="#252030",
+        ctk.CTkFrame(self, width=3, fg_color="#34303e",
                      corner_radius=0).pack(side="left", fill="y")
 
         ctk.CTkLabel(
@@ -46,7 +46,7 @@ class DeckTabs(ctk.CTkFrame):
 
         ctk.CTkButton(
             self, text="−", width=26, height=24,
-            fg_color="#1a1820", hover_color="#922b21",
+            fg_color="#28252e", hover_color="#922b21",
             text_color="#c4bfb8",
             font=ctk.CTkFont(size=15),
             command=self._delete_active_deck,
@@ -56,7 +56,7 @@ class DeckTabs(ctk.CTkFrame):
         if self._tab_offset > 0:
             ctk.CTkButton(
                 self, text="◀", width=24, height=24,
-                fg_color="#1a1820", hover_color="#221e2c",
+                fg_color="#28252e", hover_color="#302c3a",
                 text_color="#5a5060",
                 font=ctk.CTkFont(size=11),
                 command=self._scroll_left,
@@ -73,11 +73,11 @@ class DeckTabs(ctk.CTkFrame):
                 width=max(72, len(deck.name) * 7 + 16),
                 height=24,
                 font=ctk.CTkFont(size=11, weight="bold" if is_active else "normal"),
-                fg_color="#c04828" if is_active else "#1a1820",
-                hover_color="#a83820" if is_active else "#221e2c",
+                fg_color="#c04828" if is_active else "#28252e",
+                hover_color="#a83820" if is_active else "#302c3a",
                 text_color="#f0ece4",
                 border_width=1 if not is_active else 0,
-                border_color="#252030",
+                border_color="#34303e",
                 command=lambda idx=i: self._select(idx),
             )
             btn.pack(side="left", padx=2, pady=6)
@@ -88,7 +88,7 @@ class DeckTabs(ctk.CTkFrame):
         if visible_end < total:
             ctk.CTkButton(
                 self, text="▶", width=24, height=24,
-                fg_color="#1a1820", hover_color="#221e2c",
+                fg_color="#28252e", hover_color="#302c3a",
                 text_color="#5a5060",
                 font=ctk.CTkFont(size=11),
                 command=self._scroll_right,
@@ -97,7 +97,7 @@ class DeckTabs(ctk.CTkFrame):
         # ── Bouton + ──────────────────────────────────────────────────────
         ctk.CTkButton(
             self, text="+", width=26, height=24,
-            fg_color="#1a1820", hover_color="#221e2c",
+            fg_color="#28252e", hover_color="#302c3a",
             text_color="#5a5060",
             font=ctk.CTkFont(size=15),
             command=self._create_deck_dialog,
@@ -145,7 +145,7 @@ class DeckTabs(ctk.CTkFrame):
         popup.geometry(f"+{event.x_root}+{event.y_root}")
         self._context_popup = popup
 
-        frame = ctk.CTkFrame(popup, fg_color="#1a1820", corner_radius=8)
+        frame = ctk.CTkFrame(popup, fg_color="#28252e", corner_radius=8)
         frame.pack(padx=2, pady=2)
 
         font = ctk.CTkFont(size=13)

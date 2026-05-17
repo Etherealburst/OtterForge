@@ -193,10 +193,10 @@ class CardBackPickerDialog(ctk.CTkToplevel):
         self.after(30, self._poll_thumb_queue)
 
     def _add_gallery_placeholder(self, parent, path: str) -> tk.Label:
-        card = ctk.CTkFrame(parent, fg_color="#131118", corner_radius=6)
+        card = ctk.CTkFrame(parent, fg_color="#221f28", corner_radius=6)
         card.pack(side="left", padx=6)
 
-        lbl = tk.Label(card, image=self._placeholder_ref, bg="#131118", cursor="hand2")
+        lbl = tk.Label(card, image=self._placeholder_ref, bg="#221f28", cursor="hand2")
         lbl.pack(padx=4, pady=(6, 2))
         lbl.bind("<Button-1>", lambda e, p=path: self._select_gallery_back(p))
 

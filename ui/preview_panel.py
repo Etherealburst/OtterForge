@@ -13,7 +13,7 @@ class PreviewPanel(ctk.CTkFrame):
     PREVIEW_SIZE = (370, 515)
 
     def __init__(self, master):
-        super().__init__(master, corner_radius=0, fg_color="#0d0c0e")
+        super().__init__(master, corner_radius=0, fg_color="#1c1a20")
         self.master = master
 
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -29,7 +29,7 @@ class PreviewPanel(ctk.CTkFrame):
             anchor="w",
         ).pack(side="left")
 
-        ctk.CTkFrame(self, height=1, fg_color="#1a1820",
+        ctk.CTkFrame(self, height=1, fg_color="#28252e",
                      corner_radius=0).pack(fill="x", padx=8, pady=(0, 6))
 
         self.image_label = ctk.CTkLabel(

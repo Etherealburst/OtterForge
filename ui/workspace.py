@@ -47,7 +47,7 @@ class Workspace(ctk.CTkFrame):
         # ------------------------------------------------------------------
         # BARRE DE ZOOM + CONTRÔLES
         # ------------------------------------------------------------------
-        zoom_bar = ctk.CTkFrame(self, fg_color="#0d0c0e", height=36, corner_radius=0)
+        zoom_bar = ctk.CTkFrame(self, fg_color="#1c1a20", height=36, corner_radius=0)
         zoom_bar.pack(side="top", fill="x")
         zoom_bar.pack_propagate(False)
 
@@ -70,7 +70,7 @@ class Workspace(ctk.CTkFrame):
             btn.pack(side="left", padx=2, pady=5)
             self._zoom_buttons[factor] = btn
 
-        ctk.CTkFrame(zoom_bar, width=1, fg_color="#252030").pack(
+        ctk.CTkFrame(zoom_bar, width=1, fg_color="#34303e").pack(
             side="left", fill="y", padx=8, pady=8)
 
         # Toggle affichage dos
@@ -83,7 +83,7 @@ class Workspace(ctk.CTkFrame):
 
         # Aperçu de l'endos choisi
         self._back_thumb_ref = None
-        self._back_thumb_label = tk.Label(zoom_bar, bg="#0d0c0e", cursor="hand2")
+        self._back_thumb_label = tk.Label(zoom_bar, bg="#1c1a20", cursor="hand2")
         self._back_thumb_label.pack(side="left", padx=(8, 2), pady=3)
         self._back_name_label = ctk.CTkLabel(zoom_bar, text="", font=ctk.CTkFont(size=10),
                                               text_color="#c4bfb8")
@@ -99,7 +99,7 @@ class Workspace(ctk.CTkFrame):
         self._back_clear_btn.pack_forget()  # caché jusqu'à ce qu'un endos soit choisi
 
         # --- Barre de recherche (droite de la zoom bar) ---
-        ctk.CTkFrame(zoom_bar, width=1, fg_color="#252030").pack(
+        ctk.CTkFrame(zoom_bar, width=1, fg_color="#34303e").pack(
             side="right", fill="y", padx=8, pady=8)
 
         self._find_next_btn = ctk.CTkButton(
@@ -138,22 +138,22 @@ class Workspace(ctk.CTkFrame):
         # ------------------------------------------------------------------
         self.scrollbar_y = ctk.CTkScrollbar(
             self, orientation="vertical",
-            fg_color="#0d0c0e",
-            button_color="#252030",
+            fg_color="#1c1a20",
+            button_color="#34303e",
             button_hover_color="#5a5060",
         )
         self.scrollbar_y.pack(side="right", fill="y")
 
         self.scrollbar_x = ctk.CTkScrollbar(
             self, orientation="horizontal",
-            fg_color="#0d0c0e",
-            button_color="#252030",
+            fg_color="#1c1a20",
+            button_color="#34303e",
             button_hover_color="#5a5060",
         )
         self.scrollbar_x.pack(side="bottom", fill="x")
 
         self.canvas = tk.Canvas(
-            self, bg="#0d0c0e",
+            self, bg="#1c1a20",
             yscrollcommand=self.scrollbar_y.set,
             xscrollcommand=self.scrollbar_x.set,
         )
@@ -773,7 +773,7 @@ class Workspace(ctk.CTkFrame):
         popup.wm_overrideredirect(True)
         popup.geometry(f"+{event.x_root}+{event.y_root}")
 
-        frame = ctk.CTkFrame(popup, fg_color="#1a1820", corner_radius=8)
+        frame = ctk.CTkFrame(popup, fg_color="#28252e", corner_radius=8)
         frame.pack(padx=2, pady=2)
 
         def _cmd(fn):

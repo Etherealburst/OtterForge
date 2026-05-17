@@ -10,7 +10,7 @@ import customtkinter as ctk
 class CardSearch(ctk.CTkFrame):
 
     def __init__(self, master):
-        super().__init__(master, height=46, corner_radius=0, fg_color="#0d0c0e")
+        super().__init__(master, height=46, corner_radius=0, fg_color="#1c1a20")
         self.master = master
         self.pack_propagate(False)
         self._build()

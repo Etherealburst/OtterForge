@@ -100,13 +100,13 @@ class OtterForgeApp(ctk.CTk):
         self.sidebar = DeckSidebar(self.main_frame, app=self)
         self.sidebar.pack(side="left", fill="y")
 
-        ctk.CTkFrame(self.main_frame, width=1, fg_color="#1a1820",
+        ctk.CTkFrame(self.main_frame, width=1, fg_color="#28252e",
                      corner_radius=0).pack(side="left", fill="y")
 
         self.workspace = Workspace(self.main_frame, app=self)
         self.workspace.pack(side="left", fill="both", expand=True)
 
-        ctk.CTkFrame(self.main_frame, width=1, fg_color="#1a1820",
+        ctk.CTkFrame(self.main_frame, width=1, fg_color="#28252e",
                      corner_radius=0).pack(side="right", fill="y")
 
         self.inspector = CardInspectorPanel(self.main_frame, app=self)
@@ -484,7 +484,7 @@ class OtterForgeApp(ctk.CTk):
         frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
 
         for item in skipped:
-            row = ctk.CTkFrame(frame, fg_color="#131118")
+            row = ctk.CTkFrame(frame, fg_color="#221f28")
             row.pack(fill="x", pady=3, padx=2)
 
             ctk.CTkLabel(
@@ -685,7 +685,7 @@ class OtterForgeApp(ctk.CTk):
 
         # Avertissement slots vides
         if empty_slots > 0:
-            warn_frame = ctk.CTkFrame(dialog, fg_color="#2a1010", corner_radius=6)
+            warn_frame = ctk.CTkFrame(dialog, fg_color="#381818", corner_radius=6)
             warn_frame.pack(padx=20, fill="x", pady=(0, 8))
             ctk.CTkLabel(
                 warn_frame,
@@ -787,7 +787,7 @@ class OtterForgeApp(ctk.CTk):
         """Affiche la barre visuelle des seuils MPC dans le dialog."""
         import tkinter as tk
 
-        frame = ctk.CTkFrame(parent, fg_color="#1a1820", corner_radius=8)
+        frame = ctk.CTkFrame(parent, fg_color="#28252e", corner_radius=8)
         frame.pack(padx=20, fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
@@ -798,7 +798,7 @@ class OtterForgeApp(ctk.CTk):
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
         # Canvas pour la barre de progression
-        canvas = tk.Canvas(frame, height=52, bg="#1a1820", highlightthickness=0)
+        canvas = tk.Canvas(frame, height=52, bg="#28252e", highlightthickness=0)
         canvas.pack(fill="x", padx=12, pady=(0, 4))
 
         canvas.update_idletasks()
@@ -820,7 +820,7 @@ class OtterForgeApp(ctk.CTk):
 
         # Fond gris
         canvas.create_rectangle(x_of(lo), bar_y, x_of(hi), bar_y + bar_h,
-                                 fill="#252030", outline="")
+                                 fill="#34303e", outline="")
 
         # Portion remplie (cartes du deck)
         canvas.create_rectangle(x_of(lo), bar_y, x_of(min(total, hi)), bar_y + bar_h,
