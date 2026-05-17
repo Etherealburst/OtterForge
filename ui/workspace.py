@@ -650,9 +650,12 @@ class Workspace(ctk.CTkFrame):
                     data["x"] = sx
                     data["y"] = sy
 
-                    # Clic pur → afficher la preview
+                    # Clic pur → afficher la preview + mettre à jour l'inspecteur
                     if moved < self.CLICK_THRESHOLD:
                         self._show_card_preview(self.selected_item, show_back=self._last_clicked_back)
+                        if hasattr(self.app, "inspector"):
+                            card = self.canvas_items[self.selected_item]["card"]
+                            self.app.inspector.show_card(card)
 
         self.selected_item = None
 

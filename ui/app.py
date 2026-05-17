@@ -22,7 +22,7 @@ from ui.statusbar import StatusBar
 from ui.workspace import Workspace
 from ui.deck_sidebar import DeckSidebar
 from ui.card_search import CardSearch
-from ui.preview_panel import PreviewPanel
+from ui.card_inspector import CardInspectorPanel
 from ui.deck_tabs import DeckTabs
 from ui.card_back_picker import CardBackPickerDialog
 
@@ -109,8 +109,8 @@ class OtterForgeApp(ctk.CTk):
         ctk.CTkFrame(self.main_frame, width=1, fg_color="#1a1820",
                      corner_radius=0).pack(side="right", fill="y")
 
-        self.preview = PreviewPanel(self.main_frame)
-        self.preview.pack(side="right", fill="y")
+        self.inspector = CardInspectorPanel(self.main_frame, app=self)
+        self.inspector.pack(side="right", fill="y")
 
         # ------------------------------------------------------------------
         # UI — STATUS BAR (bas)
@@ -243,6 +243,7 @@ class OtterForgeApp(ctk.CTk):
         if deck:
             self.workspace.load_cards(deck.cards, scroll_to_bottom=True)
         self.sidebar.refresh()
+        self.inspector.refresh_stats()
         self._auto_save()
         names = " + ".join(c.name for c in cards)
         self.statusbar.hide_progress()
@@ -442,6 +443,7 @@ class OtterForgeApp(ctk.CTk):
         if cards:
             self.deck_manager.add_cards_bulk(cards)
             self._refresh_ui()
+            self.inspector.refresh_stats()
 
         status = f"{len(cards)} carte(s) importée(s)"
         if skipped:
@@ -587,7 +589,6 @@ class OtterForgeApp(ctk.CTk):
 
     def _on_export_complete(self, sheets: list, output_dir: str, zip_path: str | None, mode: str) -> None:
         """Appelé dans le thread UI après la génération."""
-        self.preview.update(sheets)
         self.statusbar.hide_progress()
         self.statusbar.set_status(f"{len(sheets)} feuille(s) générée(s) → {output_dir}")
 

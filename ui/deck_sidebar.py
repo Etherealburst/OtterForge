@@ -2,6 +2,7 @@
 ui/deck_sidebar.py
 ------------------
 Panneau latéral gauche affichant la liste des cartes du deck actif.
+Comprend un filtre rapide par nom.
 """
 
 import customtkinter as ctk
@@ -16,6 +17,7 @@ class DeckSidebar(ctk.CTkFrame):
         self.app = app
         self.pack_propagate(False)
 
+        # ── Header ──────────────────────────────────────────────────────────
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=0, pady=(10, 4))
 
@@ -39,6 +41,26 @@ class DeckSidebar(ctk.CTkFrame):
         ctk.CTkFrame(self, height=1, fg_color="#1a1820",
                      corner_radius=0).pack(fill="x", padx=8, pady=(0, 4))
 
+        # ── Barre de filtre ─────────────────────────────────────────────────
+        filter_frame = ctk.CTkFrame(self, fg_color="#131118", corner_radius=4)
+        filter_frame.pack(fill="x", padx=8, pady=(0, 4))
+
+        self._filter_var = ctk.StringVar()
+        self._filter_entry = ctk.CTkEntry(
+            filter_frame,
+            textvariable=self._filter_var,
+            placeholder_text="Filtrer les cartes…",
+            height=28,
+            font=ctk.CTkFont(size=11),
+            border_width=0,
+            fg_color="#131118",
+            text_color="#f0ece4",
+            placeholder_text_color="#5a5060",
+        )
+        self._filter_entry.pack(fill="x", padx=6, pady=3)
+        self._filter_var.trace_add("write", lambda *_: self.refresh())
+
+        # ── Liste des cartes ─────────────────────────────────────────────────
         self.list_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.list_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
 
@@ -54,19 +76,39 @@ class DeckSidebar(ctk.CTkFrame):
         total = sum(c.count for c in deck.cards)
         self.total_label.configure(text=f"{total} card{'s' if total != 1 else ''}")
 
-        for card in deck.cards:
+        query = self._filter_var.get().strip().lower()
+        cards = deck.cards
+        if query:
+            cards = [c for c in cards if query in c.name.lower()]
+
+        if not cards and query:
+            ctk.CTkLabel(
+                self.list_frame,
+                text=f'Aucune carte "{query}"',
+                text_color="#5a5060",
+                font=ctk.CTkFont(size=10),
+            ).pack(pady=12)
+            return
+
+        for card in cards:
             self._build_row(card)
 
     def _build_row(self, card) -> None:
         row = ctk.CTkFrame(self.list_frame, fg_color="#131118", corner_radius=4)
         row.pack(fill="x", pady=2, padx=2)
 
+        # Clic sur la ligne → envoie la carte à l'inspecteur
+        row.bind("<Button-1>", lambda e, c=card: self._inspect(c))
+
         name = card.name if len(card.name) <= 17 else card.name[:16] + "…"
-        ctk.CTkLabel(
+        name_lbl = ctk.CTkLabel(
             row, text=name, anchor="w",
             font=ctk.CTkFont(size=11),
             text_color="#f0ece4",
-        ).pack(side="left", padx=(8, 2), pady=5, expand=True, fill="x")
+            cursor="hand2",
+        )
+        name_lbl.pack(side="left", padx=(8, 2), pady=5, expand=True, fill="x")
+        name_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
 
         ctrl = ctk.CTkFrame(row, fg_color="transparent")
         ctrl.pack(side="right", padx=(0, 4))
@@ -101,6 +143,10 @@ class DeckSidebar(ctk.CTkFrame):
             command=lambda c=card: self._remove_card(c),
         ).pack(side="left", padx=(4, 0))
 
+    def _inspect(self, card) -> None:
+        if hasattr(self.app, "inspector"):
+            self.app.inspector.show_card(card)
+
     def _change_count(self, card, delta: int) -> None:
         new_count = card.count + delta
         if new_count <= 0:
@@ -121,3 +167,5 @@ class DeckSidebar(ctk.CTkFrame):
             self.app.workspace.load_cards(deck.cards)
         self.refresh()
         self.app._auto_save()
+        if hasattr(self.app, "inspector"):
+            self.app.inspector.refresh_stats()
