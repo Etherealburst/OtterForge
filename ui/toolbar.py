@@ -29,19 +29,26 @@ class Toolbar(ctk.CTkFrame):
             os.path.dirname(os.path.dirname(__file__)), "assets", "OtterForge_Image.jpg"
         )
         try:
-            pil_img = Image.open(logo_path).resize((38, 38), Image.LANCZOS).convert("RGBA")
-            mask = Image.new("L", (38, 38), 0)
-            ImageDraw.Draw(mask).ellipse((0, 0, 38, 38), fill=255)
+            pil_img = Image.open(logo_path).resize((56, 56), Image.LANCZOS).convert("RGBA")
+            mask = Image.new("L", (56, 56), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, 56, 56), fill=255)
             pil_img.putalpha(mask)
-            ctk_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(38, 38))
-            ctk.CTkLabel(brand, image=ctk_logo, text="").pack(side="left", padx=(0, 10))
+            ctk_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(56, 56))
+            ctk.CTkLabel(brand, image=ctk_logo, text="").pack(side="left", padx=(0, 10), pady=4)
         except Exception:
             pass
 
+        name_frame = ctk.CTkFrame(brand, fg_color="transparent")
+        name_frame.pack(side="left")
         ctk.CTkLabel(
-            brand, text="OTTERFORGE",
+            name_frame, text="OTTER",
             font=ctk.CTkFont(family="Georgia", size=15, weight="bold"),
             text_color="#f0ece4",
+        ).pack(side="left")
+        ctk.CTkLabel(
+            name_frame, text="FORGE",
+            font=ctk.CTkFont(family="Georgia", size=15, weight="bold"),
+            text_color="#c04828",
         ).pack(side="left")
 
         # ── Séparateur ────────────────────────────────────────────────────
@@ -56,9 +63,10 @@ class Toolbar(ctk.CTkFrame):
         row = ctk.CTkFrame(deck_grp, fg_color="transparent")
         row.pack(pady=(0, 6))
 
-        _tool_btn(row, "↑  Open",    self.master.load_deck_file,   "Charger un deck JSON")
-        _tool_btn(row, "↓  Save",    self.master.save_deck,        "Sauvegarder le deck actif")
-        _tool_btn(row, "⬇  Import",  self.master.import_txt_deck,  "Importer un fichier TXT / Moxfield")
+        _tool_btn(row, "↑  Open",     self.master.load_deck_file,   "Charger un deck JSON")
+        _tool_btn(row, "↓  Save",     self.master.save_deck,        "Sauvegarder le deck actif")
+        _tool_btn(row, "⬇  Import",   self.master.import_txt_deck,  "Importer un fichier TXT / Moxfield")
+        _tool_btn(row, "≡  TXT",      self.master.export_txt_deck,  "Exporter le deck en fichier texte")
 
         # ── Séparateur ────────────────────────────────────────────────────
         _vsep(self)
@@ -74,7 +82,9 @@ class Toolbar(ctk.CTkFrame):
 
         _tool_btn(row2, "⊞  Export",    self.master.export_print_sheets, "Générer les feuilles d'impression")
         _tool_btn(row2, "◧  Card Back", self.master.choose_card_back,   "Choisir l'image d'endos du deck")
-        _tool_btn(row2, "⬆  MPC",       self.master.upload_to_mpc,      "Uploader sur MakePlayingCards.com")
+        _tool_btn(row2, "⬆  MPC",        self.master.upload_to_mpc,       "Uploader sur MakePlayingCards.com")
+        _tool_btn(row2, "⬆  Upscale",   self.master.upscale_cache_batch, "Upscaler le cache existant (Real-ESRGAN)")
+        _tool_btn(row2, "🗑  Cache",     self.master.purge_cache,         "Vider le cache d'images Scryfall")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

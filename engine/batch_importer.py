@@ -15,8 +15,11 @@ Télécharge les images via Scryfall et upscale à 1200 DPI via Real-ESRGAN.
 Génère un rapport des cartes ignorées en fin d'import.
 """
 
+import os
 import re
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from engine.scryfall_downloader import ScryfallDownloader
 from engine.upscaler import ImageUpscaler
 
@@ -133,18 +136,14 @@ class BatchImporter:
         """
         Importe toutes les cartes depuis un fichier TXT.
 
+        Phase 1 (parallèle, max 5 workers) : appels Scryfall + téléchargements images.
+        Phase 2 (séquentielle) : upscaling Real-ESRGAN (GPU bound).
+
         Retourne un tuple :
           - cards   : liste de dicts {"name", "image_path", "count"} — cartes importées
           - skipped : liste de dicts {"raw", "reason"} — cartes ignorées avec raison
-
-        progress_callback(msg) : appelé à chaque carte pour mettre à jour l'UI.
-        Si Real-ESRGAN est disponible, upscale chaque image à 1200 DPI.
-        Sinon, utilise l'image Scryfall PNG native (300 DPI).
         """
-        cards = []
-        skipped = []
         upscaler_available = self.upscaler.is_available()
-
         if not upscaler_available:
             print("[BatchImporter] Real-ESRGAN introuvable — images utilisées à 300 DPI natif Scryfall")
 
@@ -154,63 +153,107 @@ class BatchImporter:
         parsed_lines = [p for p in (self.parse_line(l) for l in lines) if p]
         total = len(parsed_lines)
 
-        for i, parsed in enumerate(parsed_lines, start=1):
+        # ── Phase 1 : téléchargements en parallèle ────────────────────────
+        _lock = threading.Lock()
+        _counter = [0]
+        download_results: dict = {}
+
+        def _download_one(idx_parsed):
+            idx, parsed = idx_parsed
             raw = parsed["raw"]
             card_label = parsed.get("name") or f"{parsed.get('set')} {parsed.get('collector_number')}"
-            if progress_callback:
-                progress_callback(i, total, card_label)
-
-            # --- Recherche Scryfall ---
-            card_json = None
-
-            # Priorité : set + collector number (recherche exacte)
-            if parsed["set"] and parsed["collector_number"]:
-                card_json = self.downloader.get_card_by_set(
-                    parsed["set"], parsed["collector_number"]
-                )
-                if not card_json and parsed["name"]:
-                    # Fallback : essai par nom si set/cn échoue
-                    print(f"[BatchImporter] set/cn introuvable, essai par nom : {parsed['name']!r}")
+            try:
+                card_json = None
+                if parsed["set"] and parsed["collector_number"]:
+                    card_json = self.downloader.get_card_by_set(parsed["set"], parsed["collector_number"])
+                    if not card_json and parsed["name"]:
+                        card_json = self.downloader.get_card(parsed["name"])
+                elif parsed["name"]:
                     card_json = self.downloader.get_card(parsed["name"])
 
-            # Recherche par nom seul
-            elif parsed["name"]:
-                card_json = self.downloader.get_card(parsed["name"])
+                with _lock:
+                    _counter[0] += 1
+                    if progress_callback:
+                        progress_callback(_counter[0], total, card_label)
 
-            if not card_json:
-                reason = "Carte introuvable sur Scryfall"
-                print(f"[BatchImporter] Ignoré ({reason}) : {raw!r}")
-                skipped.append({"raw": raw, "reason": reason})
+                if not card_json:
+                    return idx, {"skip": raw, "reason": "Carte introuvable sur Scryfall"}
+
+                face_paths = self.downloader.download_all_face_images(card_json)
+                if not face_paths:
+                    return idx, {"skip": raw, "reason": "Image introuvable sur Scryfall"}
+
+                return idx, (card_json, face_paths, parsed)
+            except Exception as e:
+                with _lock:
+                    if _counter[0] < total:
+                        _counter[0] += 1
+                        if progress_callback:
+                            progress_callback(_counter[0], total, card_label)
+                return idx, {"skip": raw, "reason": f"Erreur : {e}"}
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            for idx, result in pool.map(_download_one, enumerate(parsed_lines)):
+                download_results[idx] = result
+
+        # ── Phase 2 : upscaling (parallèle max 2 workers) + construction ────
+        # Collecter les tâches d'upscaling en filtrant les cache hits
+        upscale_tasks = []          # [(idx, face_index, raw_path, fname)]
+        final_face_paths: dict = {} # (idx, face_index) → chemin final
+
+        for idx in range(len(parsed_lines)):
+            result = download_results.get(idx)
+            if result is None or (isinstance(result, dict) and "skip" in result):
                 continue
-
-            # --- Téléchargement toutes les faces ---
-            face_paths = self.downloader.download_all_face_images(card_json)
-            if not face_paths:
-                reason = "Image introuvable sur Scryfall"
-                print(f"[BatchImporter] Ignoré ({reason}) : {raw!r}")
-                skipped.append({"raw": raw, "reason": reason})
-                continue
-
+            card_json, face_paths, parsed = result
             faces = card_json.get("card_faces", [])
-
-            # --- Upscaling de toutes les faces ---
-            final_paths = []
             for face_index, raw_path in enumerate(face_paths):
-                fname = (faces[face_index]["name"] if faces and face_index < len(faces) else card_json["name"])
+                out_1200 = raw_path.replace(".png", "_1200dpi.png")
                 if upscaler_available:
-                    try:
-                        fp = self.upscaler.upscale_to_1200dpi(
-                            raw_path,
-                            raw_path.replace(".png", "_1200dpi.png"),
-                        )
-                    except Exception as e:
-                        print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {e} — fallback 300 DPI")
-                        fp = self._apply_300dpi_bleed(raw_path)
+                    if os.path.exists(out_1200):
+                        print(f"[BatchImporter] Cache hit 1200dpi : {os.path.basename(out_1200)}")
+                        final_face_paths[(idx, face_index)] = out_1200
+                    else:
+                        fname = (faces[face_index]["name"] if faces and face_index < len(faces)
+                                 else card_json["name"])
+                        upscale_tasks.append((idx, face_index, raw_path, fname))
                 else:
-                    fp = self._apply_300dpi_bleed(raw_path)
-                final_paths.append(fp)
+                    final_face_paths[(idx, face_index)] = self._apply_300dpi_bleed(raw_path)
 
-            # --- Ajout au deck (face0 seulement ; face1 = back_image_path pour les DFC) ---
+        # Upscaling parallèle (max 2 pour ne pas saturer le GPU)
+        def _upscale_one(task):
+            idx, face_index, raw_path, fname = task
+            out = raw_path.replace(".png", "_1200dpi.png")
+            try:
+                return idx, face_index, self.upscaler.upscale_to_1200dpi(raw_path, out)
+            except Exception as e:
+                print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {e} — fallback 300 DPI")
+                return idx, face_index, self._apply_300dpi_bleed(raw_path)
+
+        if upscale_tasks:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                for idx, face_index, fp in pool.map(_upscale_one, upscale_tasks):
+                    final_face_paths[(idx, face_index)] = fp
+
+        # Construction des cartes dans l'ordre original
+        cards = []
+        skipped = []
+        for idx in range(len(parsed_lines)):
+            result = download_results.get(idx)
+            if result is None:
+                continue
+            if isinstance(result, dict) and "skip" in result:
+                print(f"[BatchImporter] Ignoré ({result['reason']}) : {result['skip']!r}")
+                skipped.append({"raw": result["skip"], "reason": result["reason"]})
+                continue
+
+            card_json, face_paths, parsed = result
+            faces = card_json.get("card_faces", [])
+            final_paths = [final_face_paths[(idx, fi)] for fi in range(len(face_paths))
+                           if (idx, fi) in final_face_paths]
+            if not final_paths:
+                continue
+
             face_name = faces[0]["name"] if faces else card_json["name"]
             card_dict = {
                 "name": face_name,
@@ -220,10 +263,8 @@ class BatchImporter:
             if len(final_paths) > 1:
                 card_dict["back_image_path"] = final_paths[1]
             cards.append(card_dict)
-
             print(f"[BatchImporter] Importé : {card_json['name']!r} x{parsed['count']} ({len(face_paths)} face(s))")
 
-        # --- Rapport final ---
         print(f"\n[BatchImporter] ✅ {len(cards)} carte(s) importée(s)")
         if skipped:
             print(f"[BatchImporter] ⚠️  {len(skipped)} carte(s) ignorée(s) :")

@@ -30,7 +30,7 @@ class CardBackPickerDialog(ctk.CTkToplevel):
 
     def __init__(self, master):
         super().__init__(master)
-        self.title("Choose Card Back")
+        self.title("Choisir un endos")
         self.geometry("680x480")
         self.resizable(True, True)
         self.grab_set()
@@ -53,13 +53,13 @@ class CardBackPickerDialog(ctk.CTkToplevel):
         tabview = ctk.CTkTabview(self)
         tabview.pack(fill="both", expand=True, padx=12, pady=(8, 4))
 
-        tab_upload = tabview.add("Upload from file")
-        tab_gallery = tabview.add("MPCFill presets")
+        tab_upload = tabview.add("Depuis un fichier")
+        tab_gallery = tabview.add("Préréglages MPCFill")
 
         self._build_upload_tab(tab_upload)
         self._build_gallery_tab(tab_gallery)
 
-        ctk.CTkButton(self, text="Cancel", fg_color="#581e10", hover_color="#3a1a10",
+        ctk.CTkButton(self, text="Annuler", fg_color="#581e10", hover_color="#3a1a10",
                       command=self.destroy).pack(pady=(0, 10))
 
     # ------ UPLOAD TAB ------

@@ -5,6 +5,7 @@ Canvas principal de l'application.
 """
 
 import os
+import webbrowser
 import queue
 import tkinter as tk
 import threading
@@ -171,6 +172,8 @@ class Workspace(ctk.CTkFrame):
         self._back_item_map: dict = {}       # back canvas id → front canvas id
         self._last_clicked_back: bool = False
         self.selected_item = None
+        self._hover_rect: int | None = None
+        self._hover_item: int | None = None
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._drag_origin_x = 0
@@ -194,6 +197,8 @@ class Workspace(ctk.CTkFrame):
         self.canvas.bind("<Button-5>", self._on_mousewheel)
         self.canvas.bind("<Shift-MouseWheel>", self._on_mousewheel_x)
         self.canvas.bind("<Configure>", self._on_canvas_resize)
+        self.canvas.bind("<Motion>", self._on_hover)
+        self.canvas.bind("<Leave>", self._on_hover_leave)
 
         self.canvas.focus_set()
 
@@ -301,6 +306,8 @@ class Workspace(ctk.CTkFrame):
         self.canvas_items.clear()
         self.text_to_card_item.clear()
         self.selected_item = None
+        self._hover_rect = None
+        self._hover_item = None
         self._image_refs.clear()
         # Réinitialise l'état de recherche et de sélection (les items canvas vont changer)
         self._find_matches = []
@@ -335,19 +342,24 @@ class Workspace(ctk.CTkFrame):
         self.after(40, self._poll_render_queue, version)
 
     def _card_load_worker(self, cards, version: int,
-                          canvas_w: int, spacing_x: int, card_w: int) -> None:
-        """Thread : charge chaque image PIL et la dépose dans la queue."""
+                          canvas_w: int, spacing_x: int, card_w: int,
+                          first_global_index: int = 0,
+                          total_cards: int | None = None) -> None:
+        """Thread : charge chaque image PIL et la dépose dans la queue.
+
+        first_global_index : index global du premier élément de `cards` dans self.cards
+                             (0 pour un chargement complet, existing_count pour un append)
+        total_cards        : nombre total de cartes dans self.cards (pour le centrage)
+        """
         show_backs = self._show_backs
         global_back = self.app.deck_back_image
         card_h = self._card_h
         spacing_y = self._spacing_y
         back_gap = self._back_gap
 
-        # Auto-layout : nombre de colonnes selon la largeur du canvas
         cards_per_row = max(1, canvas_w // spacing_x)
-
-        # Centrage horizontal : largeur réelle de la rangée (inclut le verso de la dernière paire)
-        n_in_row = min(cards_per_row, len(cards))
+        total = total_cards if total_cards is not None else len(cards)
+        n_in_row = min(cards_per_row, total)
         if show_backs:
             row_content_w = (n_in_row - 1) * spacing_x + card_w * 2 + back_gap
         else:
@@ -355,21 +367,23 @@ class Workspace(ctk.CTkFrame):
         start_x = max(20, (canvas_w - row_content_w) // 2)
         start_y = self.START_Y
 
-        x, y = start_x, start_y
         max_x, max_y = start_x, start_y
 
         for i, card in enumerate(cards):
             if version != self._load_version:
                 return
 
-            cx, cy = x, y
+            gi = first_global_index + i
+            cx = start_x + (gi % cards_per_row) * spacing_x
+            cy = start_y + (gi // cards_per_row) * spacing_y
+
             try:
                 display_path = card.image_path
                 if display_path.endswith("_1200dpi.png"):
                     original = display_path.replace("_1200dpi.png", ".png")
                     if os.path.exists(original):
                         display_path = original
-                img = Image.open(display_path).resize((card_w, card_h), Image.LANCZOS)
+                img = Image.open(display_path).resize((card_w, card_h), Image.BILINEAR)
 
                 back_img = None
                 if show_backs:
@@ -382,11 +396,11 @@ class Workspace(ctk.CTkFrame):
                             back_path = native
                     if back_path and os.path.isfile(back_path):
                         try:
-                            back_img = Image.open(back_path).resize((card_w, card_h), Image.LANCZOS)
+                            back_img = Image.open(back_path).resize((card_w, card_h), Image.BILINEAR)
                         except Exception:
                             pass
                     if back_img is None:
-                        back_img = Image.new("RGB", (card_w, card_h), (35, 35, 35))
+                        back_img = Image.new("RGB", (card_w, card_h), (40, 37, 46))
 
                 self._render_queue.put(("card", card, img, back_img, cx, cy))
             except Exception as e:
@@ -395,10 +409,6 @@ class Workspace(ctk.CTkFrame):
             item_w = card_w * 2 + back_gap if show_backs else card_w
             max_x = max(max_x, cx + item_w)
             max_y = max(max_y, cy + card_h)
-            x += spacing_x
-            if (i + 1) % cards_per_row == 0:
-                x = start_x
-                y += spacing_y
 
         self._render_queue.put(("done", max_x, max_y))
 
@@ -512,6 +522,14 @@ class Workspace(ctk.CTkFrame):
         self._scroll_to_canvas_pos(info["x"], info["y"])
         self._highlight_card(item_id, info)
 
+    def scroll_to_card(self, card) -> None:
+        """Scrolle le workspace pour rendre la carte visible, puis la met en surbrillance."""
+        for item_id, info in self.canvas_items.items():
+            if info["card"] is card:
+                self._scroll_to_canvas_pos(info["x"], info["y"])
+                self._highlight_card(item_id, info)
+                return
+
     def _scroll_to_canvas_pos(self, cx: int, cy: int) -> None:
         """Scrolle le canvas pour centrer (cx, cy) verticalement."""
         sr = self.canvas.cget("scrollregion")
@@ -565,6 +583,48 @@ class Workspace(ctk.CTkFrame):
         self.canvas.configure(
             scrollregion=(0, 0, max_x + self.SCROLL_PADDING, max_y + self.SCROLL_PADDING)
         )
+
+    # ------------------------------------------------------------------
+    # SURVOL — OUTLINE DE SURBRILLANCE
+    # ------------------------------------------------------------------
+
+    def _on_hover(self, event) -> None:
+        cx = self.canvas.canvasx(event.x)
+        cy = self.canvas.canvasy(event.y)
+        items = self.canvas.find_closest(cx, cy)
+        item = items[0] if items else None
+        if item in self._back_item_map:
+            item = self._back_item_map[item]
+        if item in self.text_to_card_item:
+            item = self.text_to_card_item[item]
+        if item not in self.canvas_items:
+            item = None
+
+        if item == self._hover_item:
+            return
+        self._hover_item = item
+
+        if self._hover_rect is not None:
+            self.canvas.delete(self._hover_rect)
+            self._hover_rect = None
+
+        if item is None:
+            return
+
+        data = self.canvas_items[item]
+        x, y = data["x"], data["y"]
+        cw, ch = self._card_w, self._card_h
+        self._hover_rect = self.canvas.create_rectangle(
+            x - 2, y - 2, x + cw + 2, y + ch + 2,
+            outline="#f0a050", width=2, tags=("hover_rect",),
+        )
+        self.canvas.tag_lower("hover_rect")
+
+    def _on_hover_leave(self, event) -> None:
+        self._hover_item = None
+        if self._hover_rect is not None:
+            self.canvas.delete(self._hover_rect)
+            self._hover_rect = None
 
     # ------------------------------------------------------------------
     # SCROLL — MOLETTE
@@ -783,15 +843,18 @@ class Workspace(ctk.CTkFrame):
                 fn()
             return _
 
+        card = self.canvas_items[found]["card"]
         font = ctk.CTkFont(size=13)
-        kw = dict(font=font, width=160, height=32, anchor="w")
-        ctk.CTkButton(frame, text="  Remove",        command=_cmd(self._delete_selected),        **kw).pack(padx=6, pady=(6, 2))
-        ctk.CTkButton(frame, text="  +1",            command=_cmd(lambda: self._modify_qty(1)),  **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  -1",            command=_cmd(lambda: self._modify_qty(-1)), **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Open file",     command=_cmd(self._open_card_file),         **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Change image",  command=_cmd(self._change_card_image),      **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Set Card Back", command=_cmd(self._set_card_back),          **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Export image",  command=_cmd(self._export_card_image),      **kw).pack(padx=6, pady=(2, 6))
+        kw = dict(font=font, width=170, height=32, anchor="w")
+        ctk.CTkButton(frame, text="  Inspecter",         command=_cmd(lambda: self._inspect_card(card)),     **kw).pack(padx=6, pady=(6, 2))
+        ctk.CTkButton(frame, text="  +1 copie",          command=_cmd(lambda: self._modify_qty(1)),          **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  -1 copie",          command=_cmd(lambda: self._modify_qty(-1)),         **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Supprimer",         command=_cmd(self._delete_selected),                **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Voir sur Scryfall", command=_cmd(lambda: self._open_on_scryfall(card)), **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Ouvrir le fichier", command=_cmd(self._open_card_file),                 **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Changer l'image",   command=_cmd(self._change_card_image),              **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Choisir l'endos",   command=_cmd(self._set_card_back),                  **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Exporter l'image",  command=_cmd(self._export_card_image),              **kw).pack(padx=6, pady=(2, 6))
 
         self._context_menu = popup
 
@@ -808,6 +871,14 @@ class Workspace(ctk.CTkFrame):
         if self._context_menu:
             self._context_menu.destroy()
             self._context_menu = None
+
+    def _inspect_card(self, card) -> None:
+        if hasattr(self.app, "inspector"):
+            self.app.inspector.show_card(card)
+
+    def _open_on_scryfall(self, card) -> None:
+        query = card.name.replace(" // ", " ").replace(" ", "+")
+        webbrowser.open(f"https://scryfall.com/search?q={query}&unique=art")
 
     def _delete_selected(self) -> None:
         if self.selected_item is None:

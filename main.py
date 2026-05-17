@@ -49,6 +49,14 @@ ctk.set_default_color_theme("assets/otterforge_theme.json")
 # ------------------------------------------------------------------
 
 if __name__ == "__main__":
+    # Déclare un AppUserModelID unique pour que Windows affiche l'icône
+    # OtterForge dans la barre des tâches (sinon Python montre son propre icône).
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "OtterApps.OtterForge.2.0"
+        )
+
     app = OtterForgeApp()
     app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()

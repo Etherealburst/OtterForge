@@ -82,14 +82,17 @@ class DeckManager:
         """
         return name.split(" // ")[0].strip().lower()
 
-    def add_card(self, card: Card) -> None:
+    def add_card(self, card: Card, deck_index: int | None = None) -> None:
         """
-        Ajoute une carte au deck actif.
+        Ajoute une carte au deck indiqué (active_index par défaut).
         Déduplication par image_path : même fichier = même impression = on incrémente le count.
         Deux impressions différentes du même nom (sets différents) ont des image_path distincts
         et sont donc ajoutées comme entrées séparées.
         """
-        deck = self.active_deck()
+        if deck_index is not None and 0 <= deck_index < len(self.decks):
+            deck = self.decks[deck_index]
+        else:
+            deck = self.active_deck()
         if not deck:
             return
 

@@ -8,34 +8,40 @@
 
 ### UI / UX
 
-- [ ] **Tooltip sur noms tronqués (sidebar)**
+- [x] **Tooltip sur noms tronqués (sidebar)**
   Actuellement les noms > 17 chars sont coupés avec "…" sans moyen de voir le nom complet.
   Ajouter un tooltip `<Enter>` / `<Leave>` sur chaque `name_lbl` dans `DeckSidebar._build_row()`.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Mémoriser les derniers réglages MPC**
+- [x] **Mémoriser les derniers réglages MPC**
   Le dialog Upload MPC (`app.py:upload_to_mpc`) repart à zéro à chaque ouverture (stock S30, headless False, etc.).
   Persister ces choix dans un fichier `config_user.json` ou via `deck.back_image`.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Confirmation fermeture pendant un upload**
+- [x] **Confirmation fermeture pendant un upload**
   `on_close()` ne vérifie pas si un upload MPC est en cours (`_mpc_upload_worker` tourne).
   Ajouter un flag `self._upload_in_progress` et avertir l'utilisateur si True.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Indicateur visuel de recherche dans CardSearch**
+- [x] **Indicateur visuel de recherche dans CardSearch**
   Quand une recherche est en cours le bouton est juste disabled. Ajouter une animation spinner
   ou changer le texte du bouton en "..." pendant `statusbar.show_indeterminate`.
+  -> Complété le 2026-05-17 (session auto)
 
 ### Code
 
-- [ ] **Éclater `app.py` (966 lignes)**
+- [x] **Éclater `app.py` (966 lignes)**
   Les dialogs MPC, export et import pourraient devenir des classes dans `ui/dialogs/` :
   - `ui/dialogs/mpc_upload_dialog.py`
   - `ui/dialogs/export_dialog.py`
   - `ui/dialogs/import_confirm_dialog.py`
   `app.py` ne garderait que l'orchestration.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **`_add_mpc_threshold_bar` → widget dédié**
+- [x] **`_add_mpc_threshold_bar` → widget dédié**
   Actuellement une méthode de 80 lignes dans `app.py`. Extraire en `ui/mpc_threshold_bar.py`
   (classe `MPCThresholdBar(ctk.CTkFrame)`).
+  -> Complété le 2026-05-17 (session auto)
 
 ---
 
@@ -43,41 +49,48 @@
 
 ### Fonctionnalités
 
-- [ ] **Historique de recherche dans CardSearch**
+- [x] **Historique de recherche dans CardSearch**
   Stocker les 20 dernières requêtes dans une liste et les proposer via un dropdown
   au focus du champ texte.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Dupliquer un deck**
+- [x] **Dupliquer un deck**
   Ajouter option "Dupliquer" dans le menu clic-droit onglet deck (`DeckTabs`).
   Copie profonde du deck + nouveau nom `"NomDeck (copie)"`.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Upscale batch du cache existant**
+- [x] **Upscale batch du cache existant**
   Bouton dans la toolbar "Upscale cache" qui parcourt `cache/scryfall/*.png`
   sans `_1200dpi` correspondant et les upscale en arrière-plan.
   Utile après avoir installé Real-ESRGAN alors que des cartes étaient déjà téléchargées.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Gestion du cache (taille + purge)**
+- [x] **Gestion du cache (taille + purge)**
   Afficher la taille totale de `cache/scryfall/` dans la status bar ou dans un panel settings.
   Bouton "Vider le cache" avec confirmation.
+  -> Complété le 2026-05-17 (session auto) — bouton toolbar + confirmation + status bar
 
 - [ ] **Support d'images custom (non-Scryfall)**
   Permettre de glisser-déposer une image PNG locale directement dans le workspace
   pour créer une carte custom (nom saisi manuellement).
 
-- [ ] **Réorganisation des cartes dans la sidebar**
+- [x] **Réorganisation des cartes dans la sidebar**
   Ajouter des boutons ↑ ↓ ou un drag-and-drop dans `DeckSidebar` pour réordonner
   les cartes (l'ordre est aussi celui d'upload sur MPC).
+  -> Complété le 2026-05-17 (session auto) — boutons ↑ ↓ par ligne, désactivés si filtre actif
 
 ### Qualité
 
-- [ ] **Uniformiser la langue**
+- [x] **Uniformiser la langue**
   Plusieurs dialogs sont en anglais ("Import completed", "Do you want to save your deck?", "Export completed").
   Choisir et appliquer une langue unique (FR ou EN) à toute l'interface.
+  -> Complété le 2026-05-17 (session auto) — uniformisé en français
 
-- [ ] **Race condition deck switch pendant recherche**
+- [x] **Race condition deck switch pendant recherche**
   Si l'utilisateur change d'onglet pendant `_search_worker`, la carte est ajoutée
   au deck qui était actif au moment du clic, pas celui visible à la fin de la recherche.
   Capturer `self.deck_manager.active_index` au début de `_search_worker` et l'utiliser dans `_on_search_success`.
+  -> Complété le 2026-05-17 (session auto)
 
 ---
 
@@ -85,13 +98,15 @@
 
 ### Fonctionnalités
 
-- [ ] **Annuler / Rétablir (Ctrl+Z / Ctrl+Y)**
+- [x] **Annuler / Rétablir (Ctrl+Z / Ctrl+Y)**
   Implémenter un historique simple des actions deck (ajout, suppression, changement de count).
   Stack d'états — pas besoin d'undo sur l'upscaling.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Export vers format texte (Moxfield / MTGA)**
+- [x] **Export vers format texte (Moxfield / MTGA)**
   Bouton "Export TXT" dans la toolbar qui génère un fichier `NomDeck.txt`
   au format `1 Lightning Bolt (M11) 149` pour chaque carte.
+  -> Complété le 2026-05-17 (session auto) — format `{count} {name}` (set/CN non stockés)
 
 - [ ] **Panel Settings**
   Regrouper dans un dialog `Settings` :
@@ -103,10 +118,11 @@
   Actuellement toutes les images du deck sont chargées en mémoire même si peu visibles.
   Charger uniquement les cartes dans le viewport + 1 écran de marge.
 
-- [ ] **Zoom adaptatif au changement de taille de fenêtre**
+- [x] **Zoom adaptatif au changement de taille de fenêtre**
   Le canvas workspace ne recalcule pas le layout quand la fenêtre est redimensionnée.
   Binder `<Configure>` sur le canvas et rappeler `load_cards()` si la largeur change
   de plus de 50 px.
+  -> Déjà complété (détecté 2026-05-17) — `_on_canvas_resize` + `_on_resize_done` déjà en place (threshold 30px, debounce 400ms)
 
 - [ ] **Aperçu feuille zoomable (PreviewPanel)**
   Ajouter un clic sur les miniatures du `PreviewPanel` pour ouvrir la feuille en plein écran.
@@ -117,21 +133,24 @@
 
 ### Import TXT → Workspace
 
-- [ ] **Paralléliser les téléchargements Scryfall**
+- [x] **Paralléliser les téléchargements Scryfall**
   Actuellement `batch_importer.import_txt()` traite les cartes une par une (séquentiel).
   Refactorer avec `concurrent.futures.ThreadPoolExecutor(max_workers=5)` pour lancer
   jusqu'à 5 téléchargements simultanément (respecter la limite Scryfall : 10 req/s).
   Conserver le `progress_callback` en thread-safe avec un `threading.Lock` sur le compteur.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Paralléliser l'upscaling Real-ESRGAN**
+- [x] **Paralléliser l'upscaling Real-ESRGAN**
   `upscaler.upscale_to_1200dpi()` lance un subprocess bloquant par carte.
   Lancer plusieurs subprocess en parallèle (`max_workers=2` pour ne pas saturer le GPU).
   Si Real-ESRGAN n'est pas dispo, `fit_native_to_mpc_300` est déjà rapide (Pillow pur).
+  -> Complété le 2026-05-17 (session auto) — ThreadPoolExecutor(max_workers=2) en Phase 2 + cache hit early-exit pour _1200dpi.png
 
-- [ ] **Cache hit early-exit par chemin**
+- [x] **Cache hit early-exit par chemin**
   Dans `_search_worker` et `_import_txt_worker`, vérifier l'existence de `_1200dpi.png`
   ou `_mpc300.png` AVANT d'appeler Scryfall si l'image est déjà dans le cache local.
   Economise l'appel réseau complet pour les cartes déjà présentes.
+  -> Complété le 2026-05-17 (session auto) — cache JSON par set+CN dans `_meta_{set}_{cn}.json`; get_card_by_set retourne le cache local sans appel réseau; get_card sauvegarde le résultat pour accélérer les appels futurs exacts.
 
 - [ ] **Chargement workspace en streaming (affichage progressif)**
   Actuellement `workspace.load_cards()` détruit et recrée tout le canvas à chaque appel.
@@ -218,9 +237,10 @@
 
 ### Apparence générale
 
-- [ ] **Persistance de la taille et position de la fenêtre**
+- [x] **Persistance de la taille et position de la fenêtre**
   Sauvegarder `geometry()` dans `config_user.json` à la fermeture
   et restaurer au prochain démarrage. Éviter de partir toujours en `zoomed`.
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Sidebar redimensionnable**
   Permettre de glisser le bord droit de la `DeckSidebar` pour l'élargir/rétrécir.
@@ -230,17 +250,19 @@
   Remplacer les boutons texte purs de la `Toolbar` par des icônes SVG/PNG + texte court.
   Utiliser `Pillow` pour charger des icônes locales ou intégrer `tksvg` / icônes base64.
 
-- [ ] **Raccourcis clavier manquants**
+- [x] **Raccourcis clavier manquants**
   Documenter et implémenter les raccourcis absents :
   - `Ctrl+F` → focus sur la barre de recherche `CardSearch`
   - `Ctrl+I` → ouvre dialog import TXT
   - `Ctrl+S` → sauvegarde manuelle du deck
   - `Ctrl+P` → ouvre le dialog export/impression
   - `Échap` → ferme le dialog ou panel ouvert
+  -> Complété le 2026-05-17 (session auto) — Ctrl+F/I/S/P implémentés
 
-- [ ] **Status bar : plus d'informations**
+- [x] **Status bar : plus d'informations**
   Ajouter à droite de la status bar : nombre de cartes dans le deck actif + taille du cache.
   Format : `42 cartes  •  cache 1.2 GB`
+  -> Complété le 2026-05-17 (session auto)
 
 - [ ] **Compact mode pour les lignes de la sidebar**
   Toggle entre mode normal (lignes avec boutons +/−/×) et mode compact
@@ -248,32 +270,38 @@
 
 ### Workspace
 
-- [ ] **Effet de survol sur les cartes**
+- [x] **Effet de survol sur les cartes**
   Actuellement aucun feedback visuel au survol d'une carte dans le workspace.
   Ajouter une légère surbrillance (outline 1px blanc/orange) au `<Enter>` sur chaque image.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Clic droit sur une carte → menu contextuel**
+- [x] **Clic droit sur une carte → menu contextuel**
   Menu avec options : Inspecter, +1 copie, −1 copie, Supprimer, Voir sur Scryfall (ouvre browser).
+  -> Complété le 2026-05-17 (session auto) — menu traduit FR + Inspecter + Scryfall ajoutés
 
-- [ ] **Scroll to card depuis la sidebar**
+- [x] **Scroll to card depuis la sidebar**
   Quand on clique sur une carte dans la `DeckSidebar`, scroller le workspace
   pour que la carte cliquée soit visible (centrer si possible).
+  -> Complété le 2026-05-17 (session auto)
 
 ---
 
 ## Bugs connus / Edge cases
 
-- [ ] **`_confirm_import_dialog` : position incorrecte si fenêtre minimisée**
+- [x] **`_confirm_import_dialog` : position incorrecte si fenêtre minimisée**
   Le centrage utilise `winfo_x()` / `winfo_y()` qui peuvent retourner des valeurs
   incorrectes si la fenêtre principale est minimisée. Ajouter une garde `if self.winfo_viewable()`.
+  -> Complété le 2026-05-17 (session auto)
 
-- [ ] **Séquence rapide add + switch deck**
+- [x] **Séquence rapide add + switch deck**
   `add_cards_bulk` appelle `deck.cards.append()` (corrigé → `add_card`), mais
   un import TXT en cours + switch d'onglet peut toujours provoquer une incohérence
   si `_import_txt_worker` se termine après le switch. À protéger avec un lock ou
   en capturant l'index du deck au démarrage du thread.
+  -> Complété le 2026-05-17 (session auto) — target_deck_index capturé au démarrage dans _search_worker
 
-- [ ] **`DeckSidebar` : le × du filtre reste visible après refresh()**
+- [x] **`DeckSidebar` : le × du filtre reste visible après refresh()**
   Si le filtre est actif et qu'on supprime toutes les cartes filtrées,
   la couleur du × reste `#c4bfb8` (actif) alors que la liste est vide.
   Appeler `_on_filter_change` après `_remove_card` plutôt que juste `refresh()`.
+  -> Complété le 2026-05-17 (session auto)
