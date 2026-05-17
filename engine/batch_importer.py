@@ -15,6 +15,7 @@ Télécharge les images via Scryfall et upscale à 1200 DPI via Real-ESRGAN.
 Génère un rapport des cartes ignorées en fin d'import.
 """
 
+import os
 import re
 import threading
 import urllib.parse

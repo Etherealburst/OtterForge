@@ -29,10 +29,11 @@ class _Tooltip:
         tw.wm_geometry(f"+{x}+{y}")
         lbl = tk.Label(
             tw, text=self._text,
-            background="#2a2730", foreground="#f0ece4",
+            background="#3a3548", foreground="#f0ece4",
             relief="solid", borderwidth=1,
+            highlightbackground="#c04828", highlightthickness=1,
             font=("Segoe UI", 10),
-            padx=6, pady=3,
+            padx=8, pady=4,
         )
         lbl.pack()
 
@@ -157,7 +158,7 @@ class DeckSidebar(ctk.CTkFrame):
 
         # ── Boutons ↑ ↓ (désactivés si filtre actif) ────────────────────
         filtering = bool(self._filter_var.get())
-        arrow_color = "#34303e" if filtering else "#5a5060"
+        arrow_color = "#3a3548" if filtering else "#9a90a8"
         arrow_hover = "#28252e" if filtering else "#302c3a"
         arrow_state = "disabled" if filtering else "normal"
 
@@ -225,7 +226,7 @@ class DeckSidebar(ctk.CTkFrame):
             ctrl, text="×", width=22, height=22,
             font=ctk.CTkFont(size=13),
             fg_color="#28252e", hover_color="#922b21",
-            text_color="#5a5060",
+            text_color="#a06070",
             command=lambda c=card: self._remove_card(c),
         ).pack(side="left", padx=(4, 0))
 
