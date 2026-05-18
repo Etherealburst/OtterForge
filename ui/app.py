@@ -430,11 +430,19 @@ class OtterForgeApp(ctk.CTk):
         self.after(0, self.statusbar.show_progress)
 
         def progress(current: int, total: int, card_label: str):
-            self.after(0, self.statusbar.set_status, f"Importing ({current}/{total}) : {card_label}")
+            self.after(0, self.statusbar.set_status, f"Téléchargement ({current}/{total}) : {card_label}")
+            self.after(0, self.statusbar.update_progress, current, total)
+
+        def upscale_progress(current: int, total: int, card_label: str):
+            self.after(0, self.statusbar.set_status, f"Upscaling ({current}/{total}) : {card_label}")
             self.after(0, self.statusbar.update_progress, current, total)
 
         try:
-            cards, skipped = self.batch_importer.import_txt(path, progress_callback=progress)
+            cards, skipped = self.batch_importer.import_txt(
+                path,
+                progress_callback=progress,
+                upscale_callback=upscale_progress,
+            )
             self.after(0, self._on_import_complete, cards, skipped)
         except Exception as e:
             self.after(0, self.statusbar.set_status, f"Erreur import : {e}")

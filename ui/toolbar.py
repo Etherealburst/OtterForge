@@ -131,17 +131,18 @@ class _Tooltip:
         if self._tip:
             return
         w = self._widget
-        x = w.winfo_rootx()
+        x = w.winfo_rootx() + 10
         y = w.winfo_rooty() + w.winfo_height() + 4
         self._tip = tk.Toplevel(w)
         self._tip.wm_overrideredirect(True)
-        self._tip.geometry(f"+{x}+{y}")
+        self._tip.wm_geometry(f"+{x}+{y}")
         lbl = tk.Label(
             self._tip, text=self._text,
-            bg="#28252e", fg="#c4bfb8",
-            font=("Arial", 10),
-            padx=10, pady=5,
-            relief="flat",
+            background="#3a3548", foreground="#f0ece4",
+            relief="solid", borderwidth=1,
+            highlightbackground="#c04828", highlightthickness=1,
+            font=("Segoe UI", 20),
+            padx=8, pady=4,
         )
         lbl.pack()
 

@@ -132,7 +132,7 @@ class BatchImporter:
 
         return result
 
-    def import_txt(self, path: str, progress_callback=None) -> tuple[list[dict], list[dict]]:
+    def import_txt(self, path: str, progress_callback=None, upscale_callback=None) -> tuple[list[dict], list[dict]]:
         """
         Importe toutes les cartes depuis un fichier TXT.
 
@@ -221,16 +221,25 @@ class BatchImporter:
                     final_face_paths[(idx, face_index)] = self._apply_300dpi_bleed(raw_path)
 
         # Upscaling parallèle (max 2 pour ne pas saturer le GPU)
-        def _upscale_one(task):
-            idx, face_index, raw_path, fname = task
-            out = raw_path.replace(".png", "_1200dpi.png")
-            try:
-                return idx, face_index, self.upscaler.upscale_to_1200dpi(raw_path, out)
-            except Exception as e:
-                print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {e} — fallback 300 DPI")
-                return idx, face_index, self._apply_300dpi_bleed(raw_path)
-
         if upscale_tasks:
+            _upscale_total = len(upscale_tasks)
+            _upscale_done = [0]
+            _upscale_lock2 = threading.Lock()
+
+            def _upscale_one(task):
+                idx, face_index, raw_path, fname = task
+                out = raw_path.replace(".png", "_1200dpi.png")
+                try:
+                    res = idx, face_index, self.upscaler.upscale_to_1200dpi(raw_path, out)
+                except Exception as e:
+                    print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {e} — fallback 300 DPI")
+                    res = idx, face_index, self._apply_300dpi_bleed(raw_path)
+                with _upscale_lock2:
+                    _upscale_done[0] += 1
+                    if upscale_callback:
+                        upscale_callback(_upscale_done[0], _upscale_total, fname)
+                return res
+
             with ThreadPoolExecutor(max_workers=2) as pool:
                 for idx, face_index, fp in pool.map(_upscale_one, upscale_tasks):
                     final_face_paths[(idx, face_index)] = fp

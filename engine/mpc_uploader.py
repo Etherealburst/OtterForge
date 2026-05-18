@@ -1035,17 +1035,28 @@ class MPCUploader:
             page.wait_for_timeout(200)
             self._wait_upload_complete(frame, page)
             self._wait_spinner(frame, timeout=15_000)
+            # Give MPC time to update dn_getImageList after the spinner hides
+            page.wait_for_timeout(500)
             # Poll until the new pid appears in dn_getImageList (can lag on first upload)
             pids_after = self._get_pid_list(frame)
             new_pids = [p for p in pids_after if p not in pids_before]
             if not new_pids:
-                for _ in range(25):  # up to 5s (25 × 200ms)
+                for _ in range(75):  # up to 15s (75 × 200ms)
                     page.wait_for_timeout(200)
                     pids_after = self._get_pid_list(frame)
                     new_pids = [p for p in pids_after if p not in pids_before]
                     if new_pids:
                         break
-            pid = new_pids[-1] if new_pids else (pids_after[-1] if pids_after else "")
+            if new_pids:
+                pid = new_pids[-1]
+            elif pids_after:
+                # Fallback: image déjà uploadée (dédup MPC) — réutilise le dernier pid connu.
+                # Ce cas est légitime pour les images identiques ; si la liste n'a pas changé
+                # après 15s c'est que MPC considère l'image comme déjà présente.
+                print(f"[MPC] ⚠ Aucun nouveau pid après 15s (slot {slot_index}) — fallback dédup : {pids_after[-1][:8]}…")
+                pid = pids_after[-1]
+            else:
+                pid = ""
             if pid:
                 self._path_to_pid[image_path] = pid
                 print(f"[MPC] Upload OK pid={pid[:8]}…")
