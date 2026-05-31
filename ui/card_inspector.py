@@ -7,11 +7,67 @@ Panneau latéral droit — dual-mode :
 """
 
 import os
+import json
 import threading
+import tkinter as tk
 import customtkinter as ctk
 from PIL import Image
 
+from config import CACHE_DIR
+
 _CARD_RATIO = 420 / 300   # hauteur / largeur MTG standard
+_METADATA_CACHE_PATH = os.path.join(CACHE_DIR, "card_metadata.json")
+_TYPE_ORDER = ["Creature", "Land", "Instant", "Sorcery",
+               "Enchantment", "Artifact", "Planeswalker", "Battle"]
+
+
+class _InspectorTooltip:
+    """Tooltip léger pour les lignes de stats de l'inspecteur."""
+
+    def __init__(self, widget: tk.Widget, text_fn) -> None:
+        self._widget = widget
+        self._text_fn = text_fn   # callable → str (évalué au moment du survol)
+        self._tip: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+
+    def _show(self, _event=None) -> None:
+        if self._tip:
+            return
+        text = self._text_fn()
+        if not text:
+            return
+        w = self._widget
+        x = w.winfo_rootx() + 4
+        y = w.winfo_rooty() + w.winfo_height() + 4
+        self._tip = tw = tk.Toplevel(w)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tk.Label(
+            tw, text=text,
+            background="#3a3548", foreground="#f0ece4",
+            relief="solid", borderwidth=1,
+            highlightbackground="#c04828", highlightthickness=1,
+            font=("Segoe UI", 20),
+            padx=16, pady=10, justify="left",
+        ).pack()
+
+    def _hide(self, _event=None) -> None:
+        if self._tip:
+            try:
+                self._tip.destroy()
+            except Exception:
+                pass
+            self._tip = None
+
+
+def _parse_types(type_line: str) -> list:
+    found = [t for t in _TYPE_ORDER if t in type_line]
+    return found if found else ["Other"]
+
+
+def _card_key(name: str) -> str:
+    return name.lower().split(" // ")[0].strip()
 
 
 class CardInspectorPanel(ctk.CTkFrame):
@@ -25,16 +81,18 @@ class CardInspectorPanel(ctk.CTkFrame):
 
         self._current_card = None
         self._img_ref = None
+        self._img_load_gen = 0
         self._tab = "card"
         self._show_back = False
+        self._metadata_cache: dict = self._load_metadata_cache()
+        self._metadata_pending: bool = False
+        self._metadata_failed: bool = False
 
         img_w = self.WIDTH - 24
         img_h = int(img_w * _CARD_RATIO)
         self._img_size = (img_w, img_h)
 
         self._build_header()
-        ctk.CTkFrame(self, height=1, fg_color="#28252e",
-                     corner_radius=0).pack(fill="x", padx=8, pady=(0, 4))
         self._build_card_pane()
         self._build_stats_pane()
 
@@ -45,34 +103,27 @@ class CardInspectorPanel(ctk.CTkFrame):
     # ── Header ───────────────────────────────────────────────────────────────
 
     def _build_header(self) -> None:
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=0, pady=(10, 4))
-
-        ctk.CTkFrame(header, width=3, fg_color="#c04828",
-                     corner_radius=2).pack(side="left", fill="y", padx=(8, 6))
-        ctk.CTkLabel(
-            header, text="INSPECTOR",
-            font=ctk.CTkFont(size=9), text_color="#5a5060", anchor="w",
-        ).pack(side="left")
-
-        tab_frame = ctk.CTkFrame(header, fg_color="transparent")
-        tab_frame.pack(side="right", padx=8)
+        header = ctk.CTkFrame(self, fg_color="#1c1a20", height=34)
+        header.pack(fill="x", padx=8, pady=(6, 4))
+        header.pack_propagate(False)
 
         self._btn_card = ctk.CTkButton(
-            tab_frame, text="CARD", width=52, height=22,
-            font=ctk.CTkFont(size=9),
+            header, text="CARD", width=68, height=28,
+            font=ctk.CTkFont(size=10),
             fg_color="#c04828", hover_color="#a83820",
             command=lambda: self._switch_tab("card"),
         )
         self._btn_card.pack(side="left", padx=(0, 2))
 
         self._btn_stats = ctk.CTkButton(
-            tab_frame, text="STATS", width=52, height=22,
-            font=ctk.CTkFont(size=9),
+            header, text="STATS", width=68, height=28,
+            font=ctk.CTkFont(size=10),
             fg_color="#28252e", hover_color="#34303e",
             command=lambda: self._switch_tab("stats"),
         )
         self._btn_stats.pack(side="left")
+
+        ctk.CTkFrame(self, height=1, fg_color="#28252e").pack(fill="x", padx=0, pady=(0, 4))
 
     # ── Tab switching ─────────────────────────────────────────────────────────
 
@@ -107,8 +158,8 @@ class CardInspectorPanel(ctk.CTkFrame):
 
         self._placeholder_text = ctk.CTkLabel(
             self._card_pane,
-            text="Clique sur une carte\npour l'inspecter",
-            font=ctk.CTkFont(size=11), text_color="#5a5060",
+            text="Click on a card\nto inspect it",
+            font=ctk.CTkFont(size=11), text_color="#a09aaa",
             justify="center",
         )
         self._placeholder_text.place(
@@ -128,7 +179,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         # Set / meta
         self._meta_label = ctk.CTkLabel(
             self._card_pane, text="",
-            font=ctk.CTkFont(size=10), text_color="#5a5060", anchor="w",
+            font=ctk.CTkFont(size=10), text_color="#a09aaa", anchor="w",
         )
         self._meta_label.pack(padx=14, anchor="w", pady=(2, 0))
 
@@ -143,7 +194,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         # Indicateur DFC
         self._dfc_label = ctk.CTkLabel(
             self._card_pane, text="",
-            font=ctk.CTkFont(size=9), text_color="#5a5060", anchor="w",
+            font=ctk.CTkFont(size=9), text_color="#a09aaa", anchor="w",
         )
         self._dfc_label.pack(padx=14, anchor="w", pady=(2, 0))
 
@@ -151,6 +202,15 @@ class CardInspectorPanel(ctk.CTkFrame):
 
     def _build_stats_pane(self) -> None:
         self._stats_pane = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        # Sur Windows, la molette va au widget focusé — donner le focus au canvas
+        # interne au survol pour que le scroll fonctionne sans cliquer d'abord.
+        def _focus_inner(e=None):
+            for attr in ("_parent_canvas", "_canvas"):
+                w = getattr(self._stats_pane, attr, None)
+                if w:
+                    w.focus_set()
+                    break
+        self._stats_pane.bind("<Enter>", _focus_inner, add="+")
 
     def _build_stats(self) -> None:
         for w in self._stats_pane.winfo_children():
@@ -159,8 +219,8 @@ class CardInspectorPanel(ctk.CTkFrame):
         deck = self.app.deck_manager.active_deck()
         if not deck or not deck.cards:
             ctk.CTkLabel(
-                self._stats_pane, text="Deck vide",
-                text_color="#5a5060", font=ctk.CTkFont(size=11),
+                self._stats_pane, text="Empty deck",
+                text_color="#a09aaa", font=ctk.CTkFont(size=11),
             ).pack(pady=24)
             return
 
@@ -207,28 +267,331 @@ class CardInspectorPanel(ctk.CTkFrame):
                 short = c.name[:20] + ("…" if len(c.name) > 20 else "")
                 self._stat_row(short, f"×{c.count}")
 
-    def _stat_section(self, text: str) -> None:
-        f = ctk.CTkFrame(self._stats_pane, fg_color="transparent")
-        f.pack(fill="x", padx=4, pady=(10, 2))
-        ctk.CTkFrame(f, width=3, fg_color="#c04828", corner_radius=0).pack(
-            side="left", fill="y", padx=(0, 6))
+        # Mana curve + type distribution (require Scryfall metadata)
+        missing = [c.name for c in deck.cards
+                   if _card_key(c.name) not in self._metadata_cache]
+        if missing and not self._metadata_pending and not self._metadata_failed:
+            self._metadata_pending = True
+            threading.Thread(
+                target=self._fetch_metadata, args=(missing,), daemon=True,
+            ).start()
+
+        if not missing:
+            self._build_mana_curve(deck)
+            self._build_type_dist(deck)
+        elif self._metadata_pending:
+            ctk.CTkLabel(
+                self._stats_pane, text="Fetching card data…",
+                text_color="#a09aaa", font=ctk.CTkFont(size=10),
+            ).pack(pady=8)
+
+    # ── Metadata cache (Scryfall CMC + types) ────────────────────────────────
+
+    def _load_metadata_cache(self) -> dict:
+        try:
+            with open(_METADATA_CACHE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_metadata_cache(self) -> None:
+        os.makedirs("cache", exist_ok=True)
+        try:
+            with open(_METADATA_CACHE_PATH, "w", encoding="utf-8") as f:
+                json.dump(self._metadata_cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _fetch_metadata(self, names: list) -> None:
+        """Background thread: fetch CMC + types for missing cards via Scryfall."""
+        import requests
+        identifiers = [{"name": n} for n in names[:75]]
+        try:
+            resp = requests.post(
+                "https://api.scryfall.com/cards/collection",
+                json={"identifiers": identifiers},
+                headers={"User-Agent": "OtterForge/1.0"},
+                timeout=15,
+            )
+            if resp.ok:
+                for card in resp.json().get("data", []):
+                    key = _card_key(card["name"])
+                    type_line = card.get("type_line", "")
+                    if "card_faces" in card:
+                        type_line = card["card_faces"][0].get("type_line", type_line)
+                    self._metadata_cache[key] = {
+                        "cmc": int(card.get("cmc") or 0),
+                        "types": _parse_types(type_line),
+                    }
+                self._save_metadata_cache()
+                self.after(0, self.refresh_stats)
+            else:
+                self._metadata_failed = True
+        except Exception as e:
+            print(f"[Inspector] Metadata fetch: {e}")
+            self._metadata_failed = True
+        finally:
+            self._metadata_pending = False
+
+    # ── Mana curve chart ──────────────────────────────────────────────────────
+
+    def _build_mana_curve(self, deck) -> None:
+        buckets = [0] * 7  # index 0–6, where 6 = "6+"
+        for c in deck.cards:
+            meta = self._metadata_cache.get(_card_key(c.name), {})
+            if "Land" in meta.get("types", []):
+                continue  # exclude lands from mana curve
+            cmc = min(int(meta.get("cmc", 0)), 6)
+            buckets[cmc] += c.count
+
+        if not any(buckets):
+            return
+
+        self._last_mana_buckets = list(buckets)
+        self._stat_section("MANA CURVE")
+
         ctk.CTkLabel(
-            f, text=text, font=ctk.CTkFont(size=9),
-            text_color="#5a5060", anchor="w",
+            self._stats_pane,
+            text="(lands excluded)",
+            font=ctk.CTkFont(size=8),
+            text_color="#a09aaa",
+            anchor="w",
+        ).pack(padx=8, anchor="w", pady=(0, 2))
+
+        max_count = max(buckets) or 1
+        labels = ["0", "1", "2", "3", "4", "5", "6+"]
+        PADDING_TOP = 16
+        BAR_AREA_H = 150
+        GAP = 4
+        SIDE_PAD = 10  # padding visible de chaque côté des barres
+        # WIDTH=270, scrollbar CTkScrollableFrame ~18px → contenu utile ≈252px
+        # CANVAS_W=240 + padx=4*2=8 → 248px, tient dans les 252px disponibles
+        CANVAS_W = self.WIDTH - 30
+        USABLE_W = CANVAS_W - 2 * SIDE_PAD
+        BAR_W = max(8, (USABLE_W - (len(labels) - 1) * GAP) // len(labels))
+        CANVAS_H = PADDING_TOP + BAR_AREA_H + 32
+        total_bars_w = len(labels) * BAR_W + (len(labels) - 1) * GAP
+        bar_start_x = SIDE_PAD + max(0, (USABLE_W - total_bars_w) // 2)
+
+        canvas = tk.Canvas(
+            self._stats_pane, bg="#221f28",
+            width=CANVAS_W, height=CANVAS_H,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        canvas.pack(pady=(2, 6), padx=4, anchor="center")
+        canvas.bind("<Button-1>", lambda e: self._open_mana_curve_zoom())
+
+        COLORS = ["#7ac878", "#78b4d8", "#a078d8", "#c89630", "#d07820", "#c05020", "#c04828"]
+        for i, (lbl, cnt) in enumerate(zip(labels, buckets)):
+            x = bar_start_x + i * (BAR_W + GAP)
+            bar_h = int((cnt / max_count) * BAR_AREA_H) if cnt > 0 else 0
+            if bar_h > 0:
+                y1 = PADDING_TOP + BAR_AREA_H - bar_h
+                canvas.create_rectangle(x, y1, x + BAR_W, PADDING_TOP + BAR_AREA_H,
+                                        fill=COLORS[i], outline="")
+            if cnt > 0:
+                canvas.create_text(x + BAR_W // 2, PADDING_TOP + BAR_AREA_H - bar_h - 4,
+                                   text=str(cnt), fill="#f0ece4",
+                                   font=("Segoe UI", 10, "bold"), anchor="s")
+            canvas.create_text(x + BAR_W // 2, PADDING_TOP + BAR_AREA_H + 14,
+                               text=lbl, fill="#a09aaa",
+                               font=("Segoe UI", 10))
+
+        canvas.create_text(CANVAS_W - 4, CANVAS_H - 4,
+                           text="🔍 zoom", fill="#a09aaa",
+                           font=("Segoe UI", 8), anchor="se")
+
+    # ── Mana curve zoom popup ─────────────────────────────────────────────────
+
+    def _open_mana_curve_zoom(self) -> None:
+        """Ouvre un popup agrandi de la courbe de mana. Échap ou Close pour fermer."""
+        buckets = getattr(self, "_last_mana_buckets", None)
+        if not buckets or not any(buckets):
+            return
+
+        if getattr(self, "_curve_popup", None) is not None:
+            try:
+                self._curve_popup.destroy()
+            except Exception:
+                pass
+            self._curve_popup = None
+
+        self.app.update_idletasks()
+        ws = self.app.workspace
+        ws.update_idletasks()
+
+        # DPI scale : CTkToplevel.geometry() applique _scale à la taille (WxH)
+        # mais PAS à la position (+x+y). +x+y doit être en pixels physiques écran.
+        try:
+            from customtkinter import ScalingTracker
+            _scale = ScalingTracker.get_window_scaling(self.app)
+        except Exception:
+            _scale = max(1.0, self.app.winfo_fpixels('1i') / 96.0)
+
+        # Workspace en pixels physiques
+        ws_rx = ws.winfo_rootx()
+        ws_ry = ws.winfo_rooty()
+        ws_pw = ws.winfo_width()
+        ws_ph = ws.winfo_height()
+
+        # Popup en pixels logiques (CTk scale automatiquement la taille)
+        POP_W = max(360, min(int((ws_pw - 40) / _scale), 820))
+        POP_H = max(280, min(int((ws_ph - 40) / _scale), 540))
+
+        # Taille physique réelle du popup pour calculer le centrage
+        phys_w = round(POP_W * _scale)
+        phys_h = round(POP_H * _scale)
+        px = ws_rx + (ws_pw - phys_w) // 2
+        py = ws_ry + (ws_ph - phys_h) // 2
+
+        popup = ctk.CTkToplevel(self.app)
+        popup.title("Mana Curve")
+        popup.resizable(True, True)
+        popup.attributes("-topmost", True)
+        popup.geometry(f"{POP_W}x{POP_H}+{px}+{py}")
+        popup.grab_set()
+        popup.lift()
+        self._curve_popup = popup
+
+        def _close(e=None):
+            if popup.winfo_exists():
+                popup.destroy()
+            self._curve_popup = None
+
+        popup.protocol("WM_DELETE_WINDOW", _close)
+        popup.bind("<Escape>", _close)
+
+        bg = ctk.CTkFrame(popup, fg_color="#1c1a20", corner_radius=10,
+                          border_width=1, border_color="#34303e")
+        bg.pack(fill="both", expand=True, padx=2, pady=2)
+
+        ctk.CTkLabel(bg, text="MANA CURVE",
+                     font=ctk.CTkFont(size=9), text_color="#a09aaa").pack(pady=(10, 0))
+
+        canvas = tk.Canvas(bg, bg="#1c1a20", highlightthickness=0, cursor="hand2")
+        canvas.pack(fill="both", expand=True, padx=16, pady=(4, 4))
+
+        ctk.CTkButton(bg, text="Close", width=80, height=28, command=_close).pack(pady=(0, 8))
+
+        labels = ["0", "1", "2", "3", "4", "5", "6+"]
+        COLORS = ["#7ac878", "#78b4d8", "#a078d8", "#c89630", "#d07820", "#c05020", "#c04828"]
+        _drawn = [False]
+
+        def _draw_bars(event=None):
+            if _drawn[0]:
+                return
+            CW = canvas.winfo_width()
+            CH = canvas.winfo_height()
+            if CW < 10 or CH < 10:
+                return
+            _drawn[0] = True
+            canvas.delete("all")
+            PADDING_TOP = 22
+            LABEL_AREA = 44
+            GAP = max(4, CW // 70)
+            SIDE_PAD = max(16, CW // 20)
+            USABLE_W = CW - 2 * SIDE_PAD
+            BAR_W = max(8, (USABLE_W - (len(labels) - 1) * GAP) // len(labels))
+            BAR_AREA_H = CH - PADDING_TOP - LABEL_AREA
+            total_bars_w = len(labels) * BAR_W + (len(labels) - 1) * GAP
+            start_x = SIDE_PAD + max(0, (USABLE_W - total_bars_w) // 2)
+            max_count = max(buckets) or 1
+            font_sz = max(11, min(22, BAR_W // 4))
+
+            for i, (lbl, cnt) in enumerate(zip(labels, buckets)):
+                x = start_x + i * (BAR_W + GAP)
+                bar_h = int((cnt / max_count) * BAR_AREA_H) if cnt > 0 else 0
+                if bar_h > 0:
+                    y1 = PADDING_TOP + BAR_AREA_H - bar_h
+                    canvas.create_rectangle(x, y1, x + BAR_W, PADDING_TOP + BAR_AREA_H,
+                                            fill=COLORS[i], outline="")
+                if cnt > 0:
+                    canvas.create_text(x + BAR_W // 2, PADDING_TOP + BAR_AREA_H - bar_h - 5,
+                                       text=str(cnt), fill="#f0ece4",
+                                       font=("Segoe UI", font_sz, "bold"), anchor="s")
+                canvas.create_text(x + BAR_W // 2, PADDING_TOP + BAR_AREA_H + LABEL_AREA // 2,
+                                   text=lbl, fill="#a09aaa",
+                                   font=("Segoe UI", font_sz))
+
+        canvas.bind("<Configure>", _draw_bars)
+
+    # ── Type distribution chart ───────────────────────────────────────────────
+
+    def _build_type_dist(self, deck) -> None:
+        type_counts: dict[str, int] = {}
+        type_cards: dict[str, list[str]] = {}   # type → noms uniques de cartes
+        for c in deck.cards:
+            meta = self._metadata_cache.get(_card_key(c.name), {})
+            for t in meta.get("types", ["Other"]):
+                type_counts[t] = type_counts.get(t, 0) + c.count
+                type_cards.setdefault(t, []).append(c.name)
+
+        if not type_counts:
+            return
+
+        self._stat_section("TYPES")
+
+        total = sum(type_counts.values())
+        max_cnt = max(type_counts.values()) or 1
+        ordered = [t for t in _TYPE_ORDER + ["Other"] if t in type_counts]
+
+        for type_name in ordered:
+            cnt = type_counts[type_name]
+            ratio = cnt / max_cnt
+            names = type_cards.get(type_name, [])
+
+            row = ctk.CTkFrame(self._stats_pane, fg_color="#221f28", corner_radius=4, height=22)
+            row.pack(fill="x", pady=1, padx=4)
+            row.pack_propagate(False)
+
+            ctk.CTkLabel(
+                row, text=type_name, width=74,
+                font=ctk.CTkFont(size=10), text_color="#c4bfb8", anchor="w",
+            ).pack(side="left", padx=(6, 4))
+
+            bar_outer = ctk.CTkFrame(row, fg_color="#2a2630", corner_radius=2, height=6)
+            bar_outer.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=5)
+            bar_outer.pack_propagate(False)
+            ctk.CTkFrame(bar_outer, fg_color="#c04828", corner_radius=2).place(
+                relx=0, rely=0, relwidth=ratio, relheight=1.0)
+
+            pct = int(cnt / total * 100) if total else 0
+            ctk.CTkLabel(
+                row, text=f"{cnt} ({pct}%)", width=48,
+                font=ctk.CTkFont(size=10), text_color="#f0ece4",
+            ).pack(side="right", padx=(0, 5))
+
+            # Tooltip : count only, no card names
+            def _make_tip(cnt=cnt, pct=pct, t=type_name):
+                return f"{t}: {cnt} card{'s' if cnt != 1 else ''}  ({pct}% of deck)"
+
+            _InspectorTooltip(row, _make_tip)
+
+    def _stat_section(self, text: str) -> None:
+        f = ctk.CTkFrame(self._stats_pane, fg_color="transparent", height=16)
+        f.pack(fill="x", padx=4, pady=(6, 1))
+        f.pack_propagate(False)
+        ctk.CTkFrame(f, width=2, fg_color="#c04828", corner_radius=0).pack(
+            side="left", fill="y", padx=(0, 4))
+        ctk.CTkLabel(
+            f, text=text, font=ctk.CTkFont(size=8),
+            text_color="#a09aaa", anchor="w",
         ).pack(side="left")
 
     def _stat_row(self, label: str, value, accent: bool = False) -> None:
-        row = ctk.CTkFrame(self._stats_pane, fg_color="#221f28", corner_radius=4)
-        row.pack(fill="x", pady=2, padx=4)
+        row = ctk.CTkFrame(self._stats_pane, fg_color="#221f28", corner_radius=4, height=22)
+        row.pack(fill="x", pady=1, padx=4)
+        row.pack_propagate(False)
         ctk.CTkLabel(
-            row, text=label, font=ctk.CTkFont(size=11),
+            row, text=label, font=ctk.CTkFont(size=10),
             text_color="#c4bfb8", anchor="w",
-        ).pack(side="left", padx=(8, 4), pady=6, fill="x", expand=True)
+        ).pack(side="left", padx=(4, 2), pady=1, fill="x", expand=True)
         ctk.CTkLabel(
             row, text=str(value),
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=ctk.CTkFont(size=10, weight="bold"),
             text_color="#c04828" if accent else "#f0ece4",
-        ).pack(side="right", padx=8)
+        ).pack(side="right", padx=6)
 
     # ── API publique ──────────────────────────────────────────────────────────
 
@@ -236,22 +599,24 @@ class CardInspectorPanel(ctk.CTkFrame):
         """Appelé depuis workspace ou sidebar quand une carte est sélectionnée."""
         self._current_card = card
         self._show_back = show_back
+        self._img_load_gen += 1
+        gen = self._img_load_gen
         if self._tab != "card":
             self._switch_tab("card")
 
         # Labels instantanés
         self._name_label.configure(text=card.name)
         count = card.count
-        self._count_label.configure(text=f"×{count}  dans le deck")
+        self._count_label.configure(text=f"×{count}  in deck")
         self._placeholder_text.place_forget()
 
         has_back = bool(getattr(card, "back_image_path", None))
         if show_back and has_back:
-            self._dfc_label.configure(text="← face verso", text_color="#c04828")
+            self._dfc_label.configure(text="← back face", text_color="#c04828")
         elif has_back:
-            self._dfc_label.configure(text="Double-faced card  ·  DFC", text_color="#5a5060")
+            self._dfc_label.configure(text="Double-faced card  ·  DFC", text_color="#a09aaa")
         else:
-            self._dfc_label.configure(text="", text_color="#5a5060")
+            self._dfc_label.configure(text="", text_color="#a09aaa")
 
         # Set code via le nom du fichier (best-effort)
         path = card.image_path or ""
@@ -267,11 +632,13 @@ class CardInspectorPanel(ctk.CTkFrame):
         # Image en thread
         threading.Thread(
             target=self._load_image_bg,
-            args=(card, show_back),
+            args=(card, show_back, gen),
             daemon=True,
         ).start()
 
-    def _load_image_bg(self, card, show_back: bool = False) -> None:
+    def _load_image_bg(self, card, show_back: bool = False, gen: int = 0) -> None:
+        if gen != self._img_load_gen:
+            return
         try:
             path = card.image_path
             if show_back:
@@ -312,25 +679,10 @@ class CardInspectorPanel(ctk.CTkFrame):
         ws = self.app.workspace
         ws.update_idletasks()
 
-        # CTkToplevel._apply_geometry_scaling scale la TAILLE (logique→physique)
-        # mais laisse la position +X+Y inchangée → passer des pixels physiques.
-        try:
-            from customtkinter import ScalingTracker
-            _s = ScalingTracker.get_window_scaling(self.app)
-        except Exception:
-            _s = 1.0
-
-        # Centre du workspace en pixels physiques
-        cx = ws.winfo_rootx() + ws.winfo_width()  // 2
-        cy = ws.winfo_rooty() + ws.winfo_height() // 2
-
-        # Taille en pixels logiques (CTkToplevel applique _s automatiquement)
         img_w = 380
         img_h = int(img_w * _CARD_RATIO)
-
-        # Offset centrage en pixels physiques (taille physique = logique * _s)
-        px = cx - round(img_w * _s) // 2
-        py = cy - round(img_h * _s) // 2
+        px = max(0, ws.winfo_rootx() + (ws.winfo_width() - img_w) // 2)
+        py = max(0, ws.winfo_rooty() + (ws.winfo_height() - img_h) // 2)
 
         popup = ctk.CTkToplevel(self.app)
         popup.overrideredirect(True)
@@ -418,5 +770,6 @@ class CardInspectorPanel(ctk.CTkFrame):
 
     def refresh_stats(self) -> None:
         """À appeler après chaque modification du deck."""
+        self._metadata_failed = False  # permet un nouvel essai au changement de deck
         if self._tab == "stats":
             self._build_stats()

@@ -56,9 +56,9 @@ class MPCUploadDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self,
-            text=f"Deck : {deck_name}   •   {total_slots} carte(s)",
+            text=f"Deck: {deck_name}   •   {total_slots} card(s)",
             font=ctk.CTkFont(size=11),
-            text_color="#5a5060",
+            text_color="#a09aaa",
         ).pack(pady=(0, 6))
 
         MPCThresholdBar(self, total_slots, mpc_qty).pack(padx=20, fill="x", pady=(0, 8))
@@ -71,7 +71,7 @@ class MPCUploadDialog(ctk.CTkToplevel):
             _eta_parts.append(f"backs ~{max(1, _est_backs // 60)} min")
         ctk.CTkLabel(
             self,
-            text=f"Temps estimé : ~{_est_total_min} min  ({' + '.join(_eta_parts)})",
+            text=f"Estimated time: ~{_est_total_min} min  ({' + '.join(_eta_parts)})",
             font=ctk.CTkFont(size=10),
             text_color="gray60",
         ).pack(pady=(0, 6))
@@ -81,7 +81,7 @@ class MPCUploadDialog(ctk.CTkToplevel):
             warn_frame.pack(padx=20, fill="x", pady=(0, 8))
             ctk.CTkLabel(
                 warn_frame,
-                text=f"⚠  {empty_slots} slot(s) vide(s) — ils apparaîtront à la fin de la commande MPC.",
+                text=f"⚠  {empty_slots} empty slot(s) — they will appear at the end of the MPC order.",
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color="#f5e6e6",
                 wraplength=380,
@@ -117,7 +117,7 @@ class MPCUploadDialog(ctk.CTkToplevel):
         login_var = ctk.BooleanVar(value=mpc_prefs.get("login", False))
         ctk.CTkCheckBox(
             self,
-            text="Se connecter à MPC (2 min pour login, optionnel)",
+            text="Log in to MPC (2 min for login, optional)",
             variable=login_var,
             font=ctk.CTkFont(size=11),
         ).pack(padx=24, anchor="w", pady=(0, 4))
@@ -126,7 +126,7 @@ class MPCUploadDialog(ctk.CTkToplevel):
         headless_var = ctk.BooleanVar(value=mpc_prefs.get("headless", False))
         ctk.CTkCheckBox(
             self,
-            text="Mode arrière-plan (navigateur invisible)",
+            text="Background mode (invisible browser)",
             variable=headless_var,
             font=ctk.CTkFont(size=11),
         ).pack(padx=24, anchor="w", pady=(0, 6))
@@ -136,12 +136,12 @@ class MPCUploadDialog(ctk.CTkToplevel):
         if deck_back_image:
             back_label = f" ({os.path.basename(deck_back_image)})"
         elif not has_backs:
-            back_label = " (aucun endos détecté)"
+            back_label = " (no card back detected)"
         saved_upload_backs = mpc_prefs.get("upload_backs", has_backs) if has_backs else False
         upload_backs_var = ctk.BooleanVar(value=saved_upload_backs)
         ctk.CTkCheckBox(
             self,
-            text=f"Uploader les endos{back_label}",
+            text=f"Upload backs{back_label}",
             variable=upload_backs_var,
             state="normal" if has_backs else "disabled",
             font=ctk.CTkFont(size=11),
@@ -163,10 +163,10 @@ class MPCUploadDialog(ctk.CTkToplevel):
                     return
             if empty_slots > 0:
                 if not messagebox.askyesno(
-                    "Slots vides",
-                    f"Votre deck contient {total_slots} carte(s), mais MPC requiert {mpc_qty} slots.\n\n"
-                    f"{empty_slots} slot(s) resteront vides à la fin de la commande.\n\n"
-                    "Continuer quand même ?",
+                    "Empty slots",
+                    f"Your deck has {total_slots} card(s), but MPC requires {mpc_qty} slots.\n\n"
+                    f"{empty_slots} slot(s) will remain empty at the end of the order.\n\n"
+                    "Continue anyway?",
                     parent=self,
                 ):
                     return
@@ -179,8 +179,8 @@ class MPCUploadDialog(ctk.CTkToplevel):
             }
             self.destroy()
 
-        ctk.CTkButton(btn_frame, text="Démarrer l'upload", width=170,
+        ctk.CTkButton(btn_frame, text="Start upload", width=170,
                       command=on_start).pack(side="left", padx=6)
-        ctk.CTkButton(btn_frame, text="Annuler", width=100,
+        ctk.CTkButton(btn_frame, text="Cancel", width=100,
                       fg_color="#581e10", hover_color="#3a1a10",
                       command=self.destroy).pack(side="left", padx=6)

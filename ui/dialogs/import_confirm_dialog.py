@@ -18,7 +18,7 @@ class ImportConfirmDialog(ctk.CTkToplevel):
         super().__init__(master)
         self.result: bool = False
 
-        self.title("Importer un deck")
+        self.title("Import deck")
         self.resizable(False, False)
         self.grab_set()
         self.focus_set()
@@ -36,19 +36,19 @@ class ImportConfirmDialog(ctk.CTkToplevel):
         padx = 28
 
         ctk.CTkLabel(
-            self, text="Importer ce deck ?",
+            self, text="Import this deck?",
             font=ctk.CTkFont(size=14, weight="bold"),
             wraplength=360,
         ).pack(pady=(24, 16))
 
         fname = os.path.basename(path)
         ctk.CTkLabel(
-            self, text=f"Fichier : {fname}",
-            font=ctk.CTkFont(size=11), text_color="#5a5060",
+            self, text=f"File: {fname}",
+            font=ctk.CTkFont(size=11), text_color="#a09aaa",
         ).pack(padx=padx)
 
         ctk.CTkLabel(
-            self, text=f"Cartes détectées : {card_count}",
+            self, text=f"Cards detected: {card_count}",
             font=ctk.CTkFont(size=12),
         ).pack(padx=padx, pady=(6, 0))
 
@@ -62,16 +62,16 @@ class ImportConfirmDialog(ctk.CTkToplevel):
             else:
                 time_str = f"~{total_secs} s"
             if upscaler_available:
-                quality = "images en cache → rapide ; 1ère fois avec upscaling : plus long"
+                quality = "cached images → fast; first time with upscaling: slower"
             else:
-                quality = "téléchargement seul, sans upscaling"
-            eta_text = f"Temps estimé : {time_str}  ({quality})"
+                quality = "download only, no upscaling"
+            eta_text = f"Estimated time: {time_str}  ({quality})"
         else:
-            eta_text = "Aucune carte détectée dans ce fichier."
+            eta_text = "No cards detected in this file."
 
         ctk.CTkLabel(
             self, text=eta_text,
-            font=ctk.CTkFont(size=11), text_color="#5a5060",
+            font=ctk.CTkFont(size=11), text_color="#a09aaa",
             wraplength=360,
         ).pack(padx=padx, pady=(4, 20))
 
@@ -86,13 +86,13 @@ class ImportConfirmDialog(ctk.CTkToplevel):
             self.destroy()
 
         ctk.CTkButton(
-            btn_frame, text="Oui", width=110, height=36,
+            btn_frame, text="Yes", width=110, height=36,
             font=ctk.CTkFont(size=13),
             command=on_yes,
         ).pack(side="left", padx=10)
 
         ctk.CTkButton(
-            btn_frame, text="Non", width=110, height=36,
+            btn_frame, text="No", width=110, height=36,
             font=ctk.CTkFont(size=13),
             fg_color="#581e10", hover_color="#3a1a10",
             command=on_no,

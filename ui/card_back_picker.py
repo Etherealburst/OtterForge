@@ -30,7 +30,7 @@ class CardBackPickerDialog(ctk.CTkToplevel):
 
     def __init__(self, master):
         super().__init__(master)
-        self.title("Choisir un endos")
+        self.title("Choose Card Back")
         self.geometry("680x480")
         self.resizable(True, True)
         self.grab_set()
@@ -53,13 +53,13 @@ class CardBackPickerDialog(ctk.CTkToplevel):
         tabview = ctk.CTkTabview(self)
         tabview.pack(fill="both", expand=True, padx=12, pady=(8, 4))
 
-        tab_upload = tabview.add("Depuis un fichier")
-        tab_gallery = tabview.add("Préréglages MPCFill")
+        tab_upload = tabview.add("From a file")
+        tab_gallery = tabview.add("MPCFill Presets")
 
         self._build_upload_tab(tab_upload)
         self._build_gallery_tab(tab_gallery)
 
-        ctk.CTkButton(self, text="Annuler", fg_color="#581e10", hover_color="#3a1a10",
+        ctk.CTkButton(self, text="Cancel", fg_color="#581e10", hover_color="#3a1a10",
                       command=self.destroy).pack(pady=(0, 10))
 
     # ------ UPLOAD TAB ------
@@ -69,7 +69,7 @@ class CardBackPickerDialog(ctk.CTkToplevel):
             parent,
             text="Choose any image from your computer to use as card back.",
             font=ctk.CTkFont(size=12),
-            text_color="#5a5060",
+            text_color="#a09aaa",
         ).pack(pady=(24, 16))
 
         self._upload_preview_label = ctk.CTkLabel(parent, text="")
@@ -77,7 +77,7 @@ class CardBackPickerDialog(ctk.CTkToplevel):
 
         self._upload_path_var = tk.StringVar(value="No file selected")
         ctk.CTkLabel(parent, textvariable=self._upload_path_var,
-                     text_color="#5a5060", font=ctk.CTkFont(size=11)).pack()
+                     text_color="#a09aaa", font=ctk.CTkFont(size=11)).pack()
 
         ctk.CTkButton(parent, text="Browse…", command=self._browse_file).pack(pady=12)
         ctk.CTkButton(parent, text="Use this image", fg_color="#c04828",
@@ -124,7 +124,7 @@ class CardBackPickerDialog(ctk.CTkToplevel):
             header,
             text=f"Images in card_backs/ folder ({CARD_BACKS_DIR})",
             font=ctk.CTkFont(size=11),
-            text_color="#5a5060",
+            text_color="#a09aaa",
         ).pack(side="left")
 
         ctk.CTkButton(
@@ -168,7 +168,7 @@ class CardBackPickerDialog(ctk.CTkToplevel):
                     "Add .png / .jpg images to the card_backs/ folder,\n"
                     "then click Refresh."
                 ),
-                text_color="#5a5060",
+                text_color="#a09aaa",
                 font=ctk.CTkFont(size=12),
             ).pack(pady=40)
             return
@@ -202,7 +202,7 @@ class CardBackPickerDialog(ctk.CTkToplevel):
 
         name = os.path.splitext(os.path.basename(path))[0][:18]
         ctk.CTkLabel(card, text=name, font=ctk.CTkFont(size=10),
-                     text_color="#5a5060").pack(padx=4, pady=(0, 6))
+                     text_color="#a09aaa").pack(padx=4, pady=(0, 6))
 
         return lbl
 

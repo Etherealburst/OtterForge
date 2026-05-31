@@ -10,5 +10,8 @@ Pillow
 # Requêtes HTTP (API Scryfall)
 requests
 
+# Drag-and-drop de fichiers OS vers le canvas (images custom)
+tkinterdnd2
+
 # Upscaling IA (pipeline futur — optionnel pour l'instant)
 # replicate

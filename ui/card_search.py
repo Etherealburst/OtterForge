@@ -27,7 +27,7 @@ class CardSearch(ctk.CTkFrame):
         ctk.CTkLabel(
             self, text="SEARCH",
             font=ctk.CTkFont(size=9),
-            text_color="#5a5060",
+            text_color="#a09aaa",
         ).pack(side="left", padx=(0, 8))
 
         self.entry = ctk.CTkEntry(

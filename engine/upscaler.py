@@ -43,9 +43,12 @@ class ImageUpscaler:
     Remplace le rééchantillonnage Lanczos par une vraie super-résolution IA.
     """
 
+    def __init__(self, exe_dir: str = REALESRGAN_DIR):
+        self.exe_path = os.path.join(exe_dir, "realesrgan-ncnn-vulkan.exe")
+
     def is_available(self) -> bool:
         """Vérifie que l'exécutable Real-ESRGAN est bien présent."""
-        return os.path.isfile(REALESRGAN_EXE)
+        return os.path.isfile(self.exe_path)
 
     def upscale_to_1200dpi(self, image_path: str, output_path: str) -> str:
         """
@@ -55,13 +58,12 @@ class ImageUpscaler:
         """
         if not self.is_available():
             raise FileNotFoundError(
-                f"Real-ESRGAN introuvable : {REALESRGAN_EXE}\n"
-                "Vérifie que le dossier Real-ESRGAN est bien à :\n"
-                f"{REALESRGAN_DIR}"
+                f"Real-ESRGAN introuvable : {self.exe_path}\n"
+                "Vérifie le chemin dans Paramètres → Upscaling."
             )
 
         cmd = [
-            REALESRGAN_EXE,
+            self.exe_path,
             "-i", image_path,
             "-o", output_path,
             "-n", REALESRGAN_MODEL,
@@ -75,6 +77,7 @@ class ImageUpscaler:
             cmd,
             capture_output=True,
             text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
 
         if result.returncode != 0:
@@ -111,7 +114,7 @@ class ImageUpscaler:
         x_off = (MPC_TARGET_W - new_w) // 2
         y_off = (MPC_TARGET_H - new_h) // 2
         canvas.paste(img.convert("RGB"), (x_off, y_off))
-        canvas.save(image_path, "PNG")
+        canvas.save(image_path, "PNG", compress_level=9, optimize=True)
         print(f"[ImageUpscaler] Bleed ajouté → {MPC_TARGET_W}×{MPC_TARGET_H} px "
               f"(carte : {new_w}×{new_h}, offset : {x_off},{y_off})")
 

@@ -26,7 +26,7 @@ class StatusBar(ctk.CTkFrame):
         self._info_label = ctk.CTkLabel(
             self, text="",
             font=ctk.CTkFont(size=10),
-            text_color="#5a5060",
+            text_color="#a09aaa",
             anchor="e",
         )
         self._info_label.pack(side="right", padx=12)
@@ -74,12 +74,12 @@ class StatusBar(ctk.CTkFrame):
     def update_info(self, card_count: int, cache_bytes: int) -> None:
         """Met à jour le label d'info en bas à droite (cartes + taille cache)."""
         if cache_bytes >= 1_073_741_824:
-            cache_str = f"{cache_bytes / 1_073_741_824:.1f} Go"
+            cache_str = f"{cache_bytes / 1_073_741_824:.1f} GB"
         elif cache_bytes >= 1_048_576:
-            cache_str = f"{cache_bytes / 1_048_576:.0f} Mo"
+            cache_str = f"{cache_bytes / 1_048_576:.0f} MB"
         elif cache_bytes >= 1024:
-            cache_str = f"{cache_bytes / 1024:.0f} Ko"
+            cache_str = f"{cache_bytes / 1024:.0f} KB"
         else:
-            cache_str = f"{cache_bytes} o"
-        carte_str = f"{card_count} carte{'s' if card_count != 1 else ''}"
-        self._info_label.configure(text=f"{carte_str}  •  cache {cache_str}")
+            cache_str = f"{cache_bytes} B"
+        card_str = f"{card_count} card{'s' if card_count != 1 else ''}"
+        self._info_label.configure(text=f"{card_str}  •  cache {cache_str}")

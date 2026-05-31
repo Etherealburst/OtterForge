@@ -25,7 +25,7 @@ class PreviewPanel(ctk.CTkFrame):
         ctk.CTkLabel(
             header, text="SHEET PREVIEW",
             font=ctk.CTkFont(size=9),
-            text_color="#5a5060",
+            text_color="#a09aaa",
             anchor="w",
         ).pack(side="left")
 
@@ -34,7 +34,7 @@ class PreviewPanel(ctk.CTkFrame):
 
         self.image_label = ctk.CTkLabel(
             self, text="No sheets generated yet.",
-            text_color="#5a5060",
+            text_color="#a09aaa",
             font=ctk.CTkFont(size=11),
         )
         self.image_label.pack(expand=True)

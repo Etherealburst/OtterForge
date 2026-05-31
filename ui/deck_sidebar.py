@@ -2,11 +2,14 @@
 ui/deck_sidebar.py
 ------------------
 Panneau latéral gauche affichant la liste des cartes du deck actif.
-Comprend un filtre rapide par nom.
+Comprend un filtre rapide par nom et trois états : normal / compact / hidden.
 """
 
+import os
+import threading
 import tkinter as tk
 import customtkinter as ctk
+from PIL import Image
 
 
 class _Tooltip:
@@ -33,7 +36,7 @@ class _Tooltip:
             relief="solid", borderwidth=1,
             highlightbackground="#c04828", highlightthickness=1,
             font=("Segoe UI", 20),
-            padx=8, pady=4,
+            padx=16, pady=10,
         )
         lbl.pack()
 
@@ -45,15 +48,23 @@ class _Tooltip:
 
 class DeckSidebar(ctk.CTkFrame):
 
-    WIDTH = 248
+    WIDTH = 280
+    COMPACT_WIDTH = 72
 
     def __init__(self, master, app):
         super().__init__(master, width=self.WIDTH, corner_radius=0, fg_color="#1c1a20")
         self.app = app
         self.pack_propagate(False)
+        self._state = 'normal'
+        self._current_w = self.WIDTH   # logical px — source of truth for drag handle
+        self._thumb_generation = 0  # incremented each refresh to cancel stale callbacks
+        self._list_gen = 0          # incremented each rebuild to cancel stale batch
+        self._resize_after_id = None
+        self._rebuild_after_id = None
+        self.bind("<Configure>", self._on_sidebar_configure)
 
         # ── Header compact ───────────────────────────────────────────────────
-        header = ctk.CTkFrame(self, height=14, fg_color="transparent")
+        header = ctk.CTkFrame(self, height=22, fg_color="transparent")
         header.pack(fill="x", padx=0, pady=(1, 0))
         header.pack_propagate(False)
 
@@ -62,8 +73,8 @@ class DeckSidebar(ctk.CTkFrame):
 
         ctk.CTkLabel(
             header, text="DECK",
-            font=ctk.CTkFont(size=9),
-            text_color="#5a5060",
+            font=ctk.CTkFont(size=10),
+            text_color="#a09aaa",
             anchor="w",
         ).pack(side="left")
 
@@ -74,17 +85,29 @@ class DeckSidebar(ctk.CTkFrame):
         )
         self.total_label.pack(side="right", padx=8)
 
+        # Clickable toggle icon — always visible in normal/compact states
+        _toggle_lbl = ctk.CTkLabel(
+            header, text="◧",
+            font=ctk.CTkFont(size=11),
+            text_color="#c04828",
+            cursor="hand2",
+            width=18,
+        )
+        _toggle_lbl.pack(side="right", padx=(0, 4))
+        _toggle_lbl.bind("<Button-1>", lambda e: self.app.toggle_sidebar())
+        _Tooltip(_toggle_lbl, "Toggle sidebar  (Ctrl+B)")
+
         ctk.CTkFrame(self, height=1, fg_color="#28252e",
                      corner_radius=0).pack(fill="x", padx=8, pady=(1, 1))
 
         # ── Barre de filtre ─────────────────────────────────────────────────
-        filter_frame = ctk.CTkFrame(self, fg_color="#221f28", corner_radius=4)
-        filter_frame.pack(fill="x", padx=8, pady=(0, 4))
+        self._filter_frame = ctk.CTkFrame(self, fg_color="#221f28", corner_radius=4)
+        self._filter_frame.pack(fill="x", padx=8, pady=(0, 4))
 
         self._filter_var = ctk.StringVar()
 
         self._filter_clear_btn = ctk.CTkButton(
-            filter_frame, text="×", width=22, height=22,
+            self._filter_frame, text="×", width=22, height=22,
             font=ctk.CTkFont(size=12),
             fg_color="transparent", hover_color="#922b21",
             text_color="#34303e",
@@ -93,15 +116,15 @@ class DeckSidebar(ctk.CTkFrame):
         self._filter_clear_btn.pack(side="right", padx=(0, 4), pady=3)
 
         self._filter_entry = ctk.CTkEntry(
-            filter_frame,
+            self._filter_frame,
             textvariable=self._filter_var,
-            placeholder_text="Filtrer les cartes…",
-            height=28,
+            placeholder_text="Filter cards…",
+            height=32,
             font=ctk.CTkFont(size=11),
             border_width=0,
             fg_color="#221f28",
             text_color="#f0ece4",
-            placeholder_text_color="#5a5060",
+            placeholder_text_color="#a09aaa",
         )
         self._filter_entry.pack(side="left", fill="x", expand=True, padx=(6, 0), pady=3)
         self._filter_var.trace_add("write", self._on_filter_change)
@@ -109,6 +132,133 @@ class DeckSidebar(ctk.CTkFrame):
         # ── Liste des cartes ─────────────────────────────────────────────────
         self.list_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.list_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+
+        # ── Thumbnails (mode compact uniquement) ─────────────────────────────
+        self._thumb_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        # Not packed initially — shown only in compact state
+
+    def _on_sidebar_configure(self, event) -> None:
+        """Rebuilds the card list when the sidebar is resized (sash drag)."""
+        if self._state != 'normal':
+            return
+        new_w = self.winfo_width()
+        if new_w < 80 or abs(new_w - self._current_w) < 15:
+            return
+        self._current_w = new_w
+        if self._resize_after_id:
+            self.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.after(200, self._rebuild_list)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STATE MANAGEMENT
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def set_state(self, state: str, width: int | None = None) -> None:
+        """Switch between 'normal', 'compact', and 'hidden'. width overrides normal width."""
+        self._state = state
+        if state == 'normal':
+            w = width if width is not None else self.WIDTH
+            self._current_w = w
+            self.configure(width=w)
+            self._filter_frame.pack(fill="x", padx=8, pady=(0, 4))
+            self.list_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+            self._thumb_frame.pack_forget()
+        elif state == 'compact':
+            self._current_w = self.COMPACT_WIDTH
+            self.configure(width=self.COMPACT_WIDTH)
+            self._filter_frame.pack_forget()
+            self.list_frame.pack_forget()
+            self._thumb_frame.pack(fill="both", expand=True, padx=2, pady=(0, 4))
+            self._refresh_thumbnails()
+        elif state == 'hidden':
+            self._current_w = 1
+            self.configure(width=1)
+            self._filter_frame.pack_forget()
+            self.list_frame.pack_forget()
+            self._thumb_frame.pack_forget()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # THUMBNAIL VIEW (compact state)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _refresh_thumbnails(self) -> None:
+        """Rebuild thumbnail grid progressively in a background thread."""
+        self._thumb_generation += 1
+        gen = self._thumb_generation
+
+        for w in self._thumb_frame.winfo_children():
+            w.destroy()
+
+        deck = self.app.deck_manager.active_deck()
+        if not deck:
+            return
+
+        cards = list(deck.cards)
+
+        def _load() -> None:
+            for card in cards:
+                img_path = card.image_path
+                if not img_path:
+                    self.after(0, self._add_thumb_placeholder, gen, card)
+                    continue
+                # Prefer the smaller Scryfall PNG over the heavy 1200dpi version
+                if '_1200dpi.png' in img_path:
+                    alt = img_path.replace('_1200dpi.png', '.png')
+                    if os.path.exists(alt):
+                        img_path = alt
+                if not os.path.exists(img_path):
+                    self.after(0, self._add_thumb_placeholder, gen, card)
+                    continue
+                try:
+                    # PIL work in thread; CTkImage created on main thread via after()
+                    pil = Image.open(img_path).resize((64, 90), Image.LANCZOS)
+                    self.after(0, self._add_thumb_item, gen, card, pil)
+                except Exception:
+                    self.after(0, self._add_thumb_placeholder, gen, card)
+
+        threading.Thread(target=_load, daemon=True).start()
+
+    def _add_thumb_item(self, gen: int, card, pil_img: Image.Image) -> None:
+        if self._state != 'compact' or gen != self._thumb_generation:
+            return
+        ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(64, 90))
+        item = ctk.CTkFrame(self._thumb_frame, fg_color="#221f28", corner_radius=3)
+        item.pack(fill="x", pady=1, padx=2)
+        item.bind("<Button-1>", lambda e, c=card: self._inspect(c))
+        img_lbl = ctk.CTkLabel(item, image=ctk_img, text="")
+        img_lbl.pack(pady=(2, 0))
+        img_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
+        count_lbl = ctk.CTkLabel(
+            item, text=f"×{card.count}",
+            font=ctk.CTkFont(size=9),
+            text_color="#c04828",
+        )
+        count_lbl.pack(pady=(0, 2))
+        count_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
+        _Tooltip(item, card.name)
+
+    def _add_thumb_placeholder(self, gen: int, card) -> None:
+        if self._state != 'compact' or gen != self._thumb_generation:
+            return
+        item = ctk.CTkFrame(self._thumb_frame, fg_color="#221f28", corner_radius=3)
+        item.pack(fill="x", pady=1, padx=2)
+        item.bind("<Button-1>", lambda e, c=card: self._inspect(c))
+        name = card.name[:7] + "…" if len(card.name) > 7 else card.name
+        ctk.CTkLabel(
+            item, text=name,
+            font=ctk.CTkFont(size=8),
+            text_color="#a09aaa",
+        ).pack(pady=(6, 0))
+        ctk.CTkLabel(
+            item, text=f"×{card.count}",
+            font=ctk.CTkFont(size=9),
+            text_color="#c04828",
+        ).pack(pady=(0, 6))
+        _Tooltip(item, card.name)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # FILTER + REFRESH
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _on_filter_change(self, *_) -> None:
         has_text = bool(self._filter_var.get())
@@ -119,16 +269,34 @@ class DeckSidebar(ctk.CTkFrame):
         self.refresh()
 
     def refresh(self) -> None:
+        deck = self.app.deck_manager.active_deck()
+
+        if deck:
+            total = sum(c.count for c in deck.cards)
+            self.total_label.configure(text=f"{total} card{'s' if total != 1 else ''}")
+        else:
+            self.total_label.configure(text="")
+
+        if hasattr(self.app, "inspector"):
+            self.app.inspector.refresh_stats()
+
+        # Debounce : annule un rebuild en attente et en planifie un nouveau
+        if hasattr(self, '_rebuild_after_id') and self._rebuild_after_id:
+            self.after_cancel(self._rebuild_after_id)
+        self._rebuild_after_id = self.after(150, self._rebuild_list)
+
+    def _rebuild_list(self) -> None:
+        deck = self.app.deck_manager.active_deck()
+
+        if self._state == 'compact':
+            self._refresh_thumbnails()
+            return
+
         for widget in self.list_frame.winfo_children():
             widget.destroy()
 
-        deck = self.app.deck_manager.active_deck()
         if not deck:
-            self.total_label.configure(text="")
             return
-
-        total = sum(c.count for c in deck.cards)
-        self.total_label.configure(text=f"{total} card{'s' if total != 1 else ''}")
 
         query = self._filter_var.get().strip().lower()
         cards = deck.cards
@@ -136,11 +304,11 @@ class DeckSidebar(ctk.CTkFrame):
             cards = [c for c in cards if query in c.name.lower()]
 
         if not cards:
-            msg = (f'Aucune carte "{query}"' if query
-                   else "Aucune carte dans ce deck.\nUtilise la barre de recherche\npour en ajouter.")
+            msg = (f'No card "{query}"' if query
+                   else "No cards in this deck.\nUse the search bar\nto add some.")
             ctk.CTkLabel(
                 self.list_frame, text=msg,
-                text_color="#5a5060",
+                text_color="#a09aaa",
                 font=ctk.CTkFont(size=10),
                 justify="center",
             ).pack(pady=20)
@@ -150,85 +318,61 @@ class DeckSidebar(ctk.CTkFrame):
             self._build_row(card)
 
     def _build_row(self, card) -> None:
-        row = ctk.CTkFrame(self.list_frame, fg_color="#221f28", corner_radius=4)
-        row.pack(fill="x", pady=2, padx=2)
+        RB = "#221f28"
+        CTRL_W = 152
 
-        # Clic sur la ligne → envoie la carte à l'inspecteur
-        row.bind("<Button-1>", lambda e, c=card: self._inspect(c))
+        row = tk.Frame(self.list_frame, bg=RB)
+        row.pack(fill="x", pady=1, padx=2)
 
-        # ── Boutons ↑ ↓ (désactivés si filtre actif) ────────────────────
-        filtering = bool(self._filter_var.get())
-        arrow_color = "#3a3548" if filtering else "#9a90a8"
-        arrow_hover = "#28252e" if filtering else "#302c3a"
-        arrow_state = "disabled" if filtering else "normal"
-
-        move_frame = ctk.CTkFrame(row, fg_color="transparent")
-        move_frame.pack(side="left", padx=(4, 0), fill="y")
-
-        ctk.CTkButton(
-            move_frame, text="↑", width=32, height=26,
-            font=ctk.CTkFont(size=18),
-            fg_color="transparent", hover_color=arrow_hover,
-            text_color=arrow_color,
-            state=arrow_state,
-            command=lambda c=card: self._move_card(c, -1),
-        ).pack(side="top", pady=(2, 0))
-
-        ctk.CTkButton(
-            move_frame, text="↓", width=32, height=26,
-            font=ctk.CTkFont(size=18),
-            fg_color="transparent", hover_color=arrow_hover,
-            text_color=arrow_color,
-            state=arrow_state,
-            command=lambda c=card: self._move_card(c, 1),
-        ).pack(side="top", pady=(0, 2))
-
-        # ── Nom ─────────────────────────────────────────────────────────
-        truncated = len(card.name) > 14
-        name = card.name[:13] + "…" if truncated else card.name
-        name_lbl = ctk.CTkLabel(
-            row, text=name, anchor="w",
-            font=ctk.CTkFont(size=11),
-            text_color="#f0ece4",
-            cursor="hand2",
-        )
-        name_lbl.pack(side="left", padx=(2, 2), pady=5, expand=True, fill="x")
+        # Nom — tk.Label (scaling DPI correct)
+        max_chars = max(6, (self._current_w - CTRL_W - 20) // 11)
+        truncated = len(card.name) > max_chars
+        name_text = card.name[:max_chars - 1] + "…" if truncated else card.name
+        name_lbl = tk.Label(row, text=name_text, anchor="w", bg=RB, fg="#e8e4f0",
+                            font=("Segoe UI", 20), cursor="hand2")
+        name_lbl.pack(side="left", padx=(8, 4), pady=14, expand=True, fill="x")
         name_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
         if truncated:
             _Tooltip(name_lbl, card.name)
 
-        ctrl = ctk.CTkFrame(row, fg_color="transparent")
-        ctrl.pack(side="right", padx=(0, 4))
+        # Boutons — Canvas 2× plus grands (40×44px par bouton, police 24pt)
+        c = tk.Canvas(row, bg=RB, width=CTRL_W, height=80,
+                      highlightthickness=0, cursor="hand2")
+        c.pack(side="right", padx=(0, 6))
 
-        ctk.CTkButton(
-            ctrl, text="−", width=22, height=22,
-            font=ctk.CTkFont(size=13),
-            fg_color="#28252e", hover_color="#302c3a",
-            text_color="#c4bfb8",
-            command=lambda c=card: self._change_count(c, -1),
-        ).pack(side="left", padx=1)
+        CY = 40
+        DEL_X = CTRL_W - 14
+        PLS_X = DEL_X - 42
+        CNT_X = PLS_X - 42
+        MIN_X = CNT_X - 44
 
-        ctk.CTkLabel(
-            ctrl, text=str(card.count), width=24,
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color="#c04828",
-        ).pack(side="left")
+        for bx in (MIN_X, PLS_X, DEL_X):
+            c.create_rectangle(bx - 20, CY - 22, bx + 20, CY + 22,
+                               fill="#28252e", outline="")
 
-        ctk.CTkButton(
-            ctrl, text="+", width=22, height=22,
-            font=ctk.CTkFont(size=13),
-            fg_color="#28252e", hover_color="#302c3a",
-            text_color="#c4bfb8",
-            command=lambda c=card: self._change_count(c, 1),
-        ).pack(side="left", padx=1)
+        c.create_text(MIN_X, CY, text="−", anchor="center",
+                      fill="#c4bfb8", font=("Segoe UI", 24))
+        c.create_text(CNT_X, CY, text=f"×{card.count}", anchor="center",
+                      fill="#c04828", font=("Segoe UI", 22, "bold"))
+        c.create_text(PLS_X, CY, text="+", anchor="center",
+                      fill="#c4bfb8", font=("Segoe UI", 24))
+        c.create_text(DEL_X, CY, text="×", anchor="center",
+                      fill="#a06070", font=("Segoe UI", 22))
 
-        ctk.CTkButton(
-            ctrl, text="×", width=22, height=22,
-            font=ctk.CTkFont(size=13),
-            fg_color="#28252e", hover_color="#922b21",
-            text_color="#a06070",
-            command=lambda c=card: self._remove_card(c),
-        ).pack(side="left", padx=(4, 0))
+        def _click(event, card=card, min_x=MIN_X, plus_x=PLS_X, del_x=DEL_X):
+            x = event.x
+            if x >= del_x - 20:
+                self._remove_card(card)
+            elif x >= plus_x - 20:
+                self._change_count(card, 1)
+            elif x >= min_x - 20:
+                self._change_count(card, -1)
+            else:
+                self._inspect(card)
+
+        c.bind("<Button-1>", _click)
+
+        tk.Frame(self.list_frame, bg="#2a2630", height=1).pack(fill="x", padx=4)
 
     def _move_card(self, card, direction: int) -> None:
         """direction: -1 = vers le haut, +1 = vers le bas"""
@@ -255,22 +399,21 @@ class DeckSidebar(ctk.CTkFrame):
         if new_count <= 0:
             self._remove_card(card)
             return
+        self.app._push_undo_snapshot()  # snapshot avant la mutation
         card.count = new_count
         self._sync()
 
     def _remove_card(self, card) -> None:
+        self.app._push_undo_snapshot()  # snapshot avant la mutation
         deck = self.app.deck_manager.active_deck()
         if deck:
             deck.cards = [c for c in deck.cards if c is not card]
         self._sync()
 
     def _sync(self) -> None:
-        self.app._push_undo_snapshot()
         deck = self.app.deck_manager.active_deck()
         if deck:
             self.app.workspace.load_cards(deck.cards)
         # _on_filter_change met à jour l'état du bouton × ET appelle refresh()
         self._on_filter_change()
         self.app._auto_save()
-        if hasattr(self.app, "inspector"):
-            self.app.inspector.refresh_stats()

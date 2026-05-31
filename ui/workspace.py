@@ -5,6 +5,7 @@ Canvas principal de l'application.
 """
 
 import os
+import collections
 import webbrowser
 import queue
 import tkinter as tk
@@ -27,6 +28,7 @@ class Workspace(ctk.CTkFrame):
     ZOOM_LEVELS = [1.0, 1.5, 2.0]
     SNAP_THRESHOLD = 150
     CLICK_THRESHOLD = 5
+    MAX_PIL_CACHE = 400   # LRU eviction threshold
 
     def __init__(self, master, app):
         super().__init__(master)
@@ -44,6 +46,8 @@ class Workspace(ctk.CTkFrame):
         self._selection_rects: list = []
         self._resize_after_id = None
         self._last_canvas_w: int = 0
+        self._pil_cache = collections.OrderedDict()  # (path, w, h) → PIL.Image — LRU, max MAX_PIL_CACHE entries
+        self._photo_cache: dict = {}                 # id(pil_img) → ImageTk.PhotoImage
 
         # ------------------------------------------------------------------
         # BARRE DE ZOOM + CONTRÔLES
@@ -52,11 +56,22 @@ class Workspace(ctk.CTkFrame):
         zoom_bar.pack(side="top", fill="x")
         zoom_bar.pack_propagate(False)
 
+        # Sidebar toggle — always accessible even when sidebar is hidden
+        _sb_btn = ctk.CTkButton(
+            zoom_bar, text="◧", width=28, height=26,
+            font=ctk.CTkFont(size=13),
+            fg_color="transparent", hover_color="#302c3a",
+            text_color="#c04828",
+            command=lambda: self.app.toggle_sidebar(),
+        )
+        _sb_btn.pack(side="left", padx=(4, 2), pady=5)
+        _Tooltip(_sb_btn, "Toggle sidebar  (Ctrl+B)")
+
         # Accent bar + micro-label
         ctk.CTkFrame(zoom_bar, width=3, fg_color="#c04828",
                      corner_radius=0).pack(side="left", fill="y")
         ctk.CTkLabel(zoom_bar, text="ZOOM",
-                     font=ctk.CTkFont(size=9), text_color="#5a5060").pack(
+                     font=ctk.CTkFont(size=9), text_color="#a09aaa").pack(
             side="left", padx=(8, 6)
         )
 
@@ -70,6 +85,19 @@ class Workspace(ctk.CTkFrame):
             )
             btn.pack(side="left", padx=2, pady=5)
             self._zoom_buttons[factor] = btn
+
+        ctk.CTkFrame(zoom_bar, width=1, fg_color="#34303e").pack(
+            side="left", fill="y", padx=8, pady=8)
+
+        # Vider le deck
+        _clear_btn = ctk.CTkButton(
+            zoom_bar, text="Clear Deck", width=90, height=26,
+            font=ctk.CTkFont(size=11),
+            fg_color="#581e10", hover_color="#922b21",
+            command=self._delete_all_cards,
+        )
+        _clear_btn.pack(side="left", padx=2, pady=5)
+        _Tooltip(_clear_btn, "Delete all cards from the deck  (Ctrl+A → Del)")
 
         ctk.CTkFrame(zoom_bar, width=1, fg_color="#34303e").pack(
             side="left", fill="y", padx=8, pady=8)
@@ -140,16 +168,16 @@ class Workspace(ctk.CTkFrame):
         self.scrollbar_y = ctk.CTkScrollbar(
             self, orientation="vertical",
             fg_color="#1c1a20",
-            button_color="#34303e",
-            button_hover_color="#5a5060",
+            button_color="#8a8494",
+            button_hover_color="#c04828",
         )
         self.scrollbar_y.pack(side="right", fill="y")
 
         self.scrollbar_x = ctk.CTkScrollbar(
             self, orientation="horizontal",
             fg_color="#1c1a20",
-            button_color="#34303e",
-            button_hover_color="#5a5060",
+            button_color="#8a8494",
+            button_hover_color="#c04828",
         )
         self.scrollbar_x.pack(side="bottom", fill="x")
 
@@ -202,6 +230,18 @@ class Workspace(ctk.CTkFrame):
 
         self.canvas.focus_set()
 
+        # Raccourcis globaux — fonctionnent même si le canvas n'a pas le focus
+        app.bind("<Control-a>", self._global_ctrl_a, add="+")
+        app.bind("<Delete>",    self._global_delete,  add="+")
+
+        # Enregistre le canvas comme cible de drop OS (tkinterdnd2)
+        try:
+            from tkinterdnd2 import DND_FILES
+            self.canvas.drop_target_register(DND_FILES)
+            self.canvas.dnd_bind("<<Drop>>", self._on_file_drop)
+        except Exception:
+            pass  # tkinterdnd2 absent ou DnD non initialisé
+
     # ------------------------------------------------------------------
     # PROPRIÉTÉS ZOOM + LAYOUT
     # ------------------------------------------------------------------
@@ -235,6 +275,8 @@ class Workspace(ctk.CTkFrame):
 
     def _set_zoom(self, factor: float) -> None:
         self._zoom = factor
+        self._pil_cache.clear()
+        self._photo_cache.clear()
         self._update_zoom_buttons()
         deck = self.app.deck_manager.active_deck()
         if not deck or not deck.cards:
@@ -246,6 +288,8 @@ class Workspace(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _toggle_back_display(self) -> None:
+        self._pil_cache.clear()
+        self._photo_cache.clear()
         self._show_backs = not self._show_backs
         self._back_toggle_btn.configure(
             text="Faces + Backs" if self._show_backs else "Faces Only"
@@ -272,7 +316,7 @@ class Workspace(ctk.CTkFrame):
             self._back_name_label.configure(text=os.path.splitext(os.path.basename(path))[0][:20])
             self._back_clear_btn.pack(side="left")
         except Exception:
-            self._back_name_label.configure(text="(endos)")
+            self._back_name_label.configure(text="(back)")
             self._back_clear_btn.pack(side="left")
 
     def _clear_back(self) -> None:
@@ -282,7 +326,7 @@ class Workspace(ctk.CTkFrame):
             deck.back_image = None
             self.app._auto_save()
         self.update_back_preview(None)
-        self.app.statusbar.set_status("Endos supprimé")
+        self.app.statusbar.set_status("Back image removed")
 
     def _update_zoom_buttons(self) -> None:
         for factor, btn in self._zoom_buttons.items():
@@ -298,6 +342,41 @@ class Workspace(ctk.CTkFrame):
     def load_cards(self, cards, scroll_to_bottom=False) -> None:
         self._scroll_to_bottom_on_load = scroll_to_bottom
         self._start_progressive_load(cards)
+
+    def append_cards(self, new_cards: list, scroll_to_bottom: bool = False) -> None:
+        """Add new cards to the canvas without destroying existing items.
+
+        Falls back to load_cards() when the canvas is empty or when centering
+        would shift (total cards still fits in a single row).
+        """
+        if not new_cards:
+            return
+
+        canvas_w = max(self.canvas.winfo_width(), 500)
+        spacing_x = self._spacing_x
+        card_w = self._card_w
+        cards_per_row = max(1, canvas_w // spacing_x)
+        existing_count = len(self.cards)
+        new_total = existing_count + len(new_cards)
+
+        # If centering offset would change, fall back to a full reload
+        if (not self.canvas_items or
+                min(cards_per_row, existing_count) != min(cards_per_row, new_total)):
+            self.load_cards(list(self.cards) + list(new_cards), scroll_to_bottom=scroll_to_bottom)
+            return
+
+        self._scroll_to_bottom_on_load = scroll_to_bottom
+        self.cards.extend(new_cards)
+        self._load_version += 1
+        version = self._load_version
+
+        threading.Thread(
+            target=self._card_load_worker,
+            args=(list(new_cards), version, canvas_w, spacing_x, card_w,
+                  existing_count, new_total),
+            daemon=True,
+        ).start()
+        self.after(20, self._poll_render_queue, version)
 
     def _start_progressive_load(self, cards) -> None:
         """Vide le canvas immédiatement, puis charge les cartes via un thread + queue."""
@@ -332,14 +411,13 @@ class Workspace(ctk.CTkFrame):
         spacing_x = self._spacing_x
         card_w = self._card_w
 
-        self.app.statusbar.show_indeterminate("Chargement des cartes...")
+        self.app.statusbar.show_indeterminate("Loading cards...")
         threading.Thread(
             target=self._card_load_worker,
             args=(list(self.cards), version, canvas_w, spacing_x, card_w),
             daemon=True,
         ).start()
-        # Lance le polling sur le main thread (40 ms ≈ 25 fps)
-        self.after(40, self._poll_render_queue, version)
+        self.after(10, self._poll_render_queue, version)
 
     def _card_load_worker(self, cards, version: int,
                           canvas_w: int, spacing_x: int, card_w: int,
@@ -383,7 +461,19 @@ class Workspace(ctk.CTkFrame):
                     original = display_path.replace("_1200dpi.png", ".png")
                     if os.path.exists(original):
                         display_path = original
-                img = Image.open(display_path).resize((card_w, card_h), Image.BILINEAR)
+                pil_key = (display_path, card_w, card_h)
+                img = self._pil_cache.get(pil_key)
+                if img is None:
+                    img = Image.open(display_path).resize((card_w, card_h), Image.LANCZOS)
+                    self._pil_cache[pil_key] = img
+                    if len(self._pil_cache) > self.MAX_PIL_CACHE:
+                        for _ in range(100):
+                            try:
+                                self._pil_cache.popitem(last=False)
+                            except KeyError:
+                                break
+                else:
+                    self._pil_cache.move_to_end(pil_key)
 
                 back_img = None
                 if show_backs:
@@ -396,7 +486,19 @@ class Workspace(ctk.CTkFrame):
                             back_path = native
                     if back_path and os.path.isfile(back_path):
                         try:
-                            back_img = Image.open(back_path).resize((card_w, card_h), Image.BILINEAR)
+                            back_key = (back_path, card_w, card_h)
+                            back_img = self._pil_cache.get(back_key)
+                            if back_img is None:
+                                back_img = Image.open(back_path).resize((card_w, card_h), Image.LANCZOS)
+                                self._pil_cache[back_key] = back_img
+                                if len(self._pil_cache) > self.MAX_PIL_CACHE:
+                                    for _ in range(100):
+                                        try:
+                                            self._pil_cache.popitem(last=False)
+                                        except KeyError:
+                                            break
+                            else:
+                                self._pil_cache.move_to_end(back_key)
                         except Exception:
                             pass
                     if back_img is None:
@@ -418,7 +520,7 @@ class Workspace(ctk.CTkFrame):
             return
 
         try:
-            for _ in range(10):
+            for _ in range(100):
                 item = self._render_queue.get_nowait()
                 if item[0] == "done":
                     self._finalize_load(item[1], item[2], version)
@@ -428,12 +530,16 @@ class Workspace(ctk.CTkFrame):
         except queue.Empty:
             pass
 
-        self.after(40, self._poll_render_queue, version)
+        self.after(10, self._poll_render_queue, version)
 
     def _add_card_to_canvas(self, card, img, back_img, x: int, y: int) -> None:
         """Main thread : crée les items canvas pour une carte (+ endos si activé)."""
-        tk_img = ImageTk.PhotoImage(img)
-        self._image_refs.append(tk_img)
+        photo_key = id(img)
+        tk_img = self._photo_cache.get(photo_key)
+        if tk_img is None:
+            tk_img = ImageTk.PhotoImage(img)
+            self._photo_cache[photo_key] = tk_img
+            self._image_refs.append(tk_img)  # garde-vie uniquement à la première création
         item = self.canvas.create_image(x, y, image=tk_img, anchor="nw")
         text_item = None
         if card.count > 1:
@@ -445,14 +551,18 @@ class Workspace(ctk.CTkFrame):
 
         back_item = None
         if back_img is not None:
-            tk_back = ImageTk.PhotoImage(back_img)
-            self._image_refs.append(tk_back)
+            back_key = id(back_img)
+            tk_back = self._photo_cache.get(back_key)
+            if tk_back is None:
+                tk_back = ImageTk.PhotoImage(back_img)
+                self._photo_cache[back_key] = tk_back
+                self._image_refs.append(tk_back)  # garde-vie uniquement à la première création
             bx = x + self._card_w + self._back_gap
             back_item = self.canvas.create_image(bx, y, image=tk_back, anchor="nw")
             self._back_item_map[back_item] = item   # back id → front id
             self.canvas.create_text(
                 bx + self._card_w // 2, y + self._card_h + 10,
-                text="BACK", fill="#5a5060", font=("Arial", 9),
+                text="BACK", fill="#a09aaa", font=("Arial", 9),
                 tags=("back_label",),
             )
 
@@ -627,6 +737,25 @@ class Workspace(ctk.CTkFrame):
             self._hover_rect = None
 
     # ------------------------------------------------------------------
+    # DRAG-AND-DROP DE FICHIERS OS (images custom)
+    # ------------------------------------------------------------------
+
+    def _on_file_drop(self, event) -> None:
+        """Appelé quand un fichier est glissé-déposé depuis l'explorateur sur le canvas."""
+        import re
+        raw = event.data.strip()
+        # Windows entoure les chemins avec espaces de { }
+        paths = re.findall(r'\{([^}]+)\}', raw) or [raw.strip("{}")]
+
+        for path in paths:
+            path = path.strip()
+            if path.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                self.app.add_custom_image(path)
+                return
+
+        self.app.statusbar.set_status("Unsupported format — use PNG, JPG or WebP")
+
+    # ------------------------------------------------------------------
     # SCROLL — MOLETTE
     # ------------------------------------------------------------------
 
@@ -738,6 +867,25 @@ class Workspace(ctk.CTkFrame):
     # SÉLECTION GLOBALE (Ctrl+A)
     # ------------------------------------------------------------------
 
+    def _is_text_focused(self) -> bool:
+        """True si un champ texte a le focus (évite d'interférer avec la saisie)."""
+        focused = self.app.focus_get()
+        return isinstance(focused, (tk.Entry, tk.Text))
+
+    def _global_ctrl_a(self, event=None) -> None:
+        if self._is_text_focused():
+            return
+        if self.app.focus_get() is self.canvas:
+            return  # déjà géré par le binding canvas
+        self._on_select_all(event)
+
+    def _global_delete(self, event=None) -> None:
+        if self._is_text_focused():
+            return
+        if self.app.focus_get() is self.canvas:
+            return  # déjà géré par le binding canvas
+        self._on_delete(event)
+
     def _on_escape(self, event) -> None:
         self._clear_selection()
 
@@ -758,7 +906,7 @@ class Workspace(ctk.CTkFrame):
             self._selection_rects.append(rect)
         total = len(self.canvas_items)
         self.app.statusbar.set_status(
-            f"{total} carte(s) sélectionnée(s) — Suppr pour tout effacer · Échap pour annuler"
+            f"{total} card(s) selected — Del to clear all · Esc to cancel"
         )
 
     def _clear_selection(self) -> None:
@@ -778,8 +926,8 @@ class Workspace(ctk.CTkFrame):
             return
         total = sum(c.count for c in deck.cards)
         if not messagebox.askyesno(
-            "Supprimer tout",
-            f"Supprimer toutes les {total} carte(s) du deck ?\nCette action est irréversible.",
+            "Delete all",
+            f"Delete all {total} card(s) from the deck?\nThis action is irreversible.",
         ):
             self._clear_selection()
             return
@@ -788,7 +936,7 @@ class Workspace(ctk.CTkFrame):
         self.load_cards([])
         self.app.sidebar.refresh()
         self.app._auto_save()
-        self.app.statusbar.set_status("Deck vidé.")
+        self.app.statusbar.set_status("Deck cleared.")
 
     def _on_delete(self, event) -> None:
         if self._all_selected:
@@ -802,11 +950,11 @@ class Workspace(ctk.CTkFrame):
 
     def _on_canvas_resize(self, event=None) -> None:
         new_w = event.width if event else self.canvas.winfo_width()
-        if abs(self._last_canvas_w - new_w) < 30:
+        if abs(self._last_canvas_w - new_w) < 60:
             return
         if self._resize_after_id:
             self.after_cancel(self._resize_after_id)
-        self._resize_after_id = self.after(400, self._on_resize_done)
+        self._resize_after_id = self.after(600, self._on_resize_done)
 
     def _on_resize_done(self) -> None:
         self._resize_after_id = None
@@ -846,15 +994,15 @@ class Workspace(ctk.CTkFrame):
         card = self.canvas_items[found]["card"]
         font = ctk.CTkFont(size=13)
         kw = dict(font=font, width=170, height=32, anchor="w")
-        ctk.CTkButton(frame, text="  Inspecter",         command=_cmd(lambda: self._inspect_card(card)),     **kw).pack(padx=6, pady=(6, 2))
-        ctk.CTkButton(frame, text="  +1 copie",          command=_cmd(lambda: self._modify_qty(1)),          **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  -1 copie",          command=_cmd(lambda: self._modify_qty(-1)),         **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Supprimer",         command=_cmd(self._delete_selected),                **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Voir sur Scryfall", command=_cmd(lambda: self._open_on_scryfall(card)), **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Ouvrir le fichier", command=_cmd(self._open_card_file),                 **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Changer l'image",   command=_cmd(self._change_card_image),              **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Choisir l'endos",   command=_cmd(self._set_card_back),                  **kw).pack(padx=6, pady=2)
-        ctk.CTkButton(frame, text="  Exporter l'image",  command=_cmd(self._export_card_image),              **kw).pack(padx=6, pady=(2, 6))
+        ctk.CTkButton(frame, text="  Inspect",          command=_cmd(lambda: self._inspect_card(card)),     **kw).pack(padx=6, pady=(6, 2))
+        ctk.CTkButton(frame, text="  +1 copy",          command=_cmd(lambda: self._modify_qty(1)),          **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  -1 copy",          command=_cmd(lambda: self._modify_qty(-1)),         **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Delete",           command=_cmd(self._delete_selected),                **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  View on Scryfall", command=_cmd(lambda: self._open_on_scryfall(card)), **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Open file",        command=_cmd(self._open_card_file),                 **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Change image",     command=_cmd(self._change_card_image),              **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Set card back",    command=_cmd(self._set_card_back),                  **kw).pack(padx=6, pady=2)
+        ctk.CTkButton(frame, text="  Export image",     command=_cmd(self._export_card_image),              **kw).pack(padx=6, pady=(2, 6))
 
         self._context_menu = popup
 
@@ -883,6 +1031,7 @@ class Workspace(ctk.CTkFrame):
     def _delete_selected(self) -> None:
         if self.selected_item is None:
             return
+        self.app._push_undo_snapshot()  # snapshot avant la mutation
 
         data = self.canvas_items.get(self.selected_item)
         if data:
@@ -913,14 +1062,27 @@ class Workspace(ctk.CTkFrame):
             return
 
         card = data["card"]
+        self.app._push_undo_snapshot()
         card.count = max(1, card.count + delta)
+
+        # Mise à jour ciblée du label count — évite de recharger tout le canvas
+        if card.count > 1:
+            if data.get("text_item"):
+                self.canvas.itemconfig(data["text_item"], text=f"x{card.count}")
+            else:
+                x, y = data["x"], data["y"]
+                ti = self.canvas.create_text(x + 30, y + 30, text=f"x{card.count}",
+                                             fill="white", font=("Arial", 18, "bold"))
+                data["text_item"] = ti
+                self.text_to_card_item[ti] = self.selected_item
+        else:
+            if data.get("text_item"):
+                self.canvas.delete(data["text_item"])
+                self.text_to_card_item.pop(data["text_item"], None)
+                data["text_item"] = None
 
         self.app.sidebar.refresh()
         self.app._auto_save()
-        deck = self.app.deck_manager.active_deck()
-        if deck:
-            self.load_cards(deck.cards)
-
         self._close_context_menu()
 
     def _change_card_image(self) -> None:
@@ -1012,13 +1174,13 @@ class Workspace(ctk.CTkFrame):
 
         from tkinter import filedialog
         dest = filedialog.asksaveasfilename(
-            title="Exporter l'image",
+            title="Export image",
             initialfile=default_name,
             defaultextension=".png",
             filetypes=[
                 ("PNG", "*.png"),
                 ("JPEG", "*.jpg *.jpeg"),
-                ("Tous les fichiers", "*.*"),
+                ("All files", "*.*"),
             ],
         )
         if not dest:
@@ -1029,6 +1191,46 @@ class Workspace(ctk.CTkFrame):
             if dest.lower().endswith((".jpg", ".jpeg")):
                 img = img.convert("RGB")
             img.save(dest)
-            self.app.statusbar.set_status(f"Image exportée : {os.path.basename(dest)}")
+            self.app.statusbar.set_status(f"Image exported: {os.path.basename(dest)}")
         except Exception as e:
-            messagebox.showerror("Erreur export", f"Impossible d'exporter l'image :\n{e}")
+            messagebox.showerror("Export error", f"Failed to export image:\n{e}")
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+class _Tooltip:
+    """Lightweight tooltip that appears below a widget on hover."""
+
+    def __init__(self, widget, text: str):
+        self._widget = widget
+        self._text = text
+        self._tip: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _show(self, _event=None) -> None:
+        if self._tip:
+            return
+        w = self._widget
+        x = w.winfo_rootx() + 10
+        y = w.winfo_rooty() + w.winfo_height() + 4
+        self._tip = tk.Toplevel(w)
+        self._tip.wm_overrideredirect(True)
+        self._tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(
+            self._tip, text=self._text,
+            background="#3a3548", foreground="#f0ece4",
+            relief="solid", borderwidth=1,
+            highlightbackground="#c04828", highlightthickness=1,
+            font=("Segoe UI", 20),
+            padx=16, pady=10,
+        ).pack()
+
+    def _hide(self, _event=None) -> None:
+        if self._tip:
+            try:
+                self._tip.destroy()
+            except Exception:
+                pass
+            self._tip = None

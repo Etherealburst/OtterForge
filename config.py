@@ -3,7 +3,35 @@ config.py
 ---------
 Constantes globales de OtterForge.
 Importez ce fichier dans n'importe quel module pour accéder aux paramètres.
+
+Les valeurs DOSSIERS et REALESRGAN_DIR peuvent être surchargées via
+config_user.json (clé "settings") — les modifications s'appliquent au redémarrage.
 """
+
+import json
+import os
+import sys
+
+# Base directory for all runtime data (cache, decks, output).
+# When running as a PyInstaller exe, anchor to the exe's folder so
+# data files always end up next to the exe regardless of CWD.
+BASE_DIR = (
+    os.path.dirname(sys.executable)
+    if getattr(sys, "frozen", False)
+    else os.path.dirname(os.path.abspath(__file__))
+)
+
+
+def _read_user_settings() -> dict:
+    try:
+        with open(os.path.join(BASE_DIR, "config_user.json"), "r", encoding="utf-8") as f:
+            return json.load(f).get("settings", {})
+    except Exception:
+        return {}
+
+
+_s = _read_user_settings()
+
 
 # ------------------------------------------------------------------
 # DIMENSIONS DES CARTES (affichage workspace)
@@ -34,14 +62,17 @@ MPC_MARGIN = 80
 MPC_GAP = 30
 
 # ------------------------------------------------------------------
-# DOSSIERS
+# DOSSIERS (surchargeables via config_user.json > settings)
 # ------------------------------------------------------------------
-CACHE_DIR = "cache"
-OUTPUT_DIR = "output"
-DECKS_DIR = "decks"
-CARD_BACKS_DIR = "card_backs"
+CACHE_DIR      = _s.get("cache_dir",  os.path.join(BASE_DIR, "cache"))
+OUTPUT_DIR     = _s.get("output_dir", os.path.join(BASE_DIR, "output"))
+DECKS_DIR      = _s.get("decks_dir",  os.path.join(BASE_DIR, "decks"))
+CARD_BACKS_DIR = os.path.join(BASE_DIR, "card_backs")
 
 # ------------------------------------------------------------------
-# UPSCALING (Real-ESRGAN)
+# UPSCALING (Real-ESRGAN) — surchargeable via config_user.json
 # ------------------------------------------------------------------
-REALESRGAN_DIR = r"C:\Users\Samuel\Documents\MTG\Real-ESGRAN"
+REALESRGAN_DIR = _s.get(
+    "realesrgan_dir",
+    r"C:\Users\Samuel\Documents\MTG\Real-ESGRAN",
+)

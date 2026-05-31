@@ -23,9 +23,9 @@ class MPCThresholdBar(ctk.CTkFrame):
     def _build(self, total: int, mpc_qty: int) -> None:
         ctk.CTkLabel(
             self,
-            text="Seuils MPC (lots de 18)",
+            text="MPC Thresholds (batches of 18)",
             font=ctk.CTkFont(size=10),
-            text_color="#5a5060",
+            text_color="#a09aaa",
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
         canvas = tk.Canvas(self, height=52, bg="#28252e", highlightthickness=0)
@@ -73,10 +73,10 @@ class MPCThresholdBar(ctk.CTkFrame):
 
         empty = mpc_qty - total
         if empty == 0:
-            legend = f"Batch parfait — {mpc_qty} slots, 0 vide"
+            legend = f"Perfect batch — {mpc_qty} slots, 0 empty"
             color = "#2D6A4F"
         else:
-            legend = f"Batch : {mpc_qty} slots   •   {total} remplis   •   {empty} vides"
+            legend = f"Batch: {mpc_qty} slots   •   {total} filled   •   {empty} empty"
             color = "#E8A838"
 
         ctk.CTkLabel(

@@ -17,7 +17,7 @@ class ExportModeDialog(ctk.CTkToplevel):
         super().__init__(master)
         self.result: str | None = None
 
-        self.title("Exporter les feuilles")
+        self.title("Export sheets")
         self.geometry("300x200")
         self.resizable(False, False)
         self.grab_set()
@@ -25,7 +25,7 @@ class ExportModeDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self,
-            text="Que souhaitez-vous exporter ?",
+            text="What would you like to export?",
             font=ctk.CTkFont(size=13),
         ).pack(pady=(20, 16))
 
@@ -36,12 +36,12 @@ class ExportModeDialog(ctk.CTkToplevel):
             self.result = mode
             self.destroy()
 
-        ctk.CTkButton(btn_frame, text="Feuilles seules", width=200,
+        ctk.CTkButton(btn_frame, text="Sheets only", width=200,
                       command=lambda: choose("sheets")).pack(pady=4)
-        ctk.CTkButton(btn_frame, text="ZIP seulement", width=200,
+        ctk.CTkButton(btn_frame, text="ZIP only", width=200,
                       command=lambda: choose("zip")).pack(pady=4)
-        ctk.CTkButton(btn_frame, text="Les deux", width=200,
+        ctk.CTkButton(btn_frame, text="Both", width=200,
                       command=lambda: choose("both")).pack(pady=4)
 
-        ctk.CTkButton(self, text="Annuler", fg_color="#581e10", hover_color="#3a1a10",
+        ctk.CTkButton(self, text="Cancel", fg_color="#581e10", hover_color="#3a1a10",
                       command=self.destroy).pack(pady=(8, 0))

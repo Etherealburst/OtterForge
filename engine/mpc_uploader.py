@@ -29,7 +29,11 @@ MPC_PRODUCT_URL = (
 MPC_PROCESS_URL = (
     "https://www.makeplayingcards.com/products/pro_item_process_flow.aspx"
 )
-DEBUG_DIR = os.path.join(os.path.dirname(__file__), "..", "debug_mpc")
+DEBUG_DIR = os.path.join(
+    os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
+    else os.path.normpath(os.path.join(os.path.dirname(__file__), "..")),
+    "debug_mpc"
+)
 
 
 class MPCUploader:
@@ -208,11 +212,12 @@ class MPCUploader:
             page.on("request", _capture_slot_source)
 
             self._path_to_pid = {}
+            failed_slots: list[int] = []
 
             try:
                 # --- 1. Login MPC (optionnel) ---
                 if login:
-                    cb(0, "Connexion MPC…")
+                    cb(0, "Logging in to MPC…")
                     self._login_mpc(page)
                     self._screenshot(page, "01_after_login")
 
@@ -223,28 +228,29 @@ class MPCUploader:
                 self._screenshot(page, "02_product_page")
 
                 # --- 3. Start Design ---
-                cb(0, "Lancement du design…")
+                cb(0, "Starting design…")
                 self._start_design(page)
                 self._screenshot(page, "02_after_start_design")
 
                 # --- 3. Attendre que l'éditeur iframe soit prêt ---
-                cb(0, f"Préparation éditeur : {mpc_qty} cartes, stock {self.stock}…")
+                cb(0, f"Preparing editor: {mpc_qty} cards, stock {self.stock}…")
                 self._prepare_editor(page, mpc_qty)
                 self._screenshot(page, "03_editor_ready")
 
                 # --- 4. Attendre l'UI d'upload dans l'iframe ---
-                cb(0, "Chargement de l'éditeur MPC…")
-                self._wait_editor(page)
+                cb(0, "Loading MPC editor…")
+                _front_editor = self._wait_editor(page)
                 self._screenshot(page, "04_editor_loaded")
 
                 # --- 5. Upload fronts ---
-                page.wait_for_timeout(1_500)   # laisse les slots se rendre dans l'éditeur
+                page.wait_for_timeout(800)   # laisse les slots se rendre dans l'éditeur
                 for i, slot in enumerate(fronts):
                     cb(i + 1, f"Front {i+1}/{total} — {slot['name']}")
-                    self._upload_and_place(page, i, slot["path"])
+                    self._upload_and_place(page, i, slot["path"],
+                                           frame=_front_editor, failed_slots=failed_slots)
 
                 # Capturer frame + layer fronts avant toute navigation
-                front_frame = self._find_editor_frame(page, timeout=5_000)
+                front_frame = _front_editor or self._find_editor_frame(page, timeout=5_000)
                 front_layer = _natural_layer.get("front", "front")
 
                 # --- 6. Upload backs ---
@@ -256,22 +262,22 @@ class MPCUploader:
                 back_layer = "back"
 
                 if has_backs and upload_backs:
-                    cb(total, "Basculement verso…")
+                    cb(total, "Switching to backs…")
                     self._advance_to_back(page, frame=front_frame, sources=_front_sources, layer=front_layer)
                     # mode=1 (same image) pour endos global — MPC assigne auto à tous les slots.
                     # mode=0 (different images) pour backs DFC/individuels.
                     # Approche identique à mpc-autofill : same_images() vs different_images().
                     back_mode = 1 if global_back else 0
-                    self._wait_editor(page, mode=back_mode)
+                    _back_editor = self._wait_editor(page, mode=back_mode)
                     _in_backs[0] = True  # Basculer le capteur de sources vers les backs
 
                     if global_back:
-                        cb(total, f"Endos global : {os.path.basename(unique_backs[0])}")
+                        cb(total, f"Global back: {os.path.basename(unique_backs[0])}")
                         self._upload_same_back_to_all(page, unique_backs[0])
                     else:
                         # Poll until the first back slot element is rendered
                         first_slot = next((i for i, b in enumerate(backs) if b is not None), 0)
-                        _back_frame = next(
+                        _back_frame = _back_editor or next(
                             (f for f in page.frames if self._frame_has_editor(f)), None
                         )
                         if _back_frame:
@@ -288,7 +294,8 @@ class MPCUploader:
                             if back_path is None:
                                 continue
                             cb(i + 1, f"Back {i+1}/{total} — {fronts[i]['name']}")
-                            self._upload_and_place(page, i, back_path)
+                            self._upload_and_place(page, i, back_path,
+                                                   frame=_back_frame, failed_slots=failed_slots)
 
                     # Capturer frame + layer backs avant navigation vers révision
                     back_frame = self._find_editor_frame(page, timeout=5_000)
@@ -297,7 +304,7 @@ class MPCUploader:
                 # Avancer vers la révision (skip étape 4 "Add text to back")
                 # Passer le frame et les sources capturées pour forcer la sauvegarde
                 # si setNextStep échoue et qu'on tombe en fallback __doPostBack.
-                cb(total, "Avancement vers la page de révision…")
+                cb(total, "Advancing to review page…")
                 nav_frame = back_frame if back_frame else front_frame
                 nav_sources = _back_sources if back_frame else _front_sources
                 nav_layer = back_layer if back_frame else front_layer
@@ -329,7 +336,11 @@ class MPCUploader:
                     pass
                 page.wait_for_timeout(1_500)
 
-                cb(total, "Upload terminé — finalisez la commande dans le navigateur")
+                if failed_slots:
+                    cb(total, f"⚠ {len(failed_slots)} slot(s) failed: {failed_slots} — check on MPC")
+                    print(f"[MPC] ⚠ Slots sans image : {failed_slots}")
+                else:
+                    cb(total, "Upload terminé — finalisez la commande dans le navigateur")
                 self._screenshot(page, "05_done")
                 print("[MPC] Chromium reste ouvert — vous pouvez fermer OtterForge sans perdre votre commande.")
 
@@ -642,7 +653,7 @@ class MPCUploader:
         """Avance d'une étape via oDesign.setNextStep() — même logique que _advance_to_back."""
         # Attendre fin spinner
         try:
-            page.wait_for_selector("#sysdiv_wait", state="hidden", timeout=120_000)
+            page.wait_for_selector("#sysdiv_wait", state="hidden", timeout=30_000)
         except Exception:
             pass
 
@@ -652,7 +663,7 @@ class MPCUploader:
             nat_layer = layer or "back"
             print(f"[MPC] Sauvegarde {nat_layer} ({len(sources)} slots) avant avancement…")
             self._post_complete_sources(page, frame, sources, nat_layer, total=total)
-            page.wait_for_timeout(800)
+            page.wait_for_timeout(400)
 
         # Essai 1 : setNextStep() — dialog accept géré par handler global
         try:
@@ -893,10 +904,10 @@ class MPCUploader:
 
         # 1. Attendre que le dernier AJAX (applyDragPhoto) soit terminé
         try:
-            page.wait_for_selector("#sysdiv_wait", state="hidden", timeout=120_000)
+            page.wait_for_selector("#sysdiv_wait", state="hidden", timeout=30_000)
             print("[MPC] MPC idle — sysdiv_wait caché")
         except Exception:
-            print("[MPC] ⚠ sysdiv_wait non caché après 120s — tentative quand même")
+            print("[MPC] ⚠ sysdiv_wait non caché après 30s — tentative quand même")
 
         # 2. Sauvegarder TOUS les slots côté serveur.
         # Obligatoire : chaque applyDragPhoto ne POST qu'un seul slot à
@@ -907,7 +918,7 @@ class MPCUploader:
             nat_layer = layer or "front"
             print(f"[MPC] Sauvegarde {nat_layer} ({len(sources)} slots) → serveur MPC…")
             self._post_complete_sources(page, frame, sources, nat_layer)
-            page.wait_for_timeout(800)
+            page.wait_for_timeout(400)
 
         # 3. oDesign.setNextStep() — le confirm() dialog est géré par page.on("dialog", accept).
         # expect_navigation AVANT evaluate() pour capturer les navigations immédiates.
@@ -1011,14 +1022,17 @@ class MPCUploader:
         self._apply_drag_photo(frame, page, 0, pid)
         print(f"[MPC] ✓ Endos global pid={pid[:8]}… → slot 0 (mode same image, MPC réplique)")
 
-    def _upload_and_place(self, page, slot_index: int, image_path: str):
+    def _upload_and_place(self, page, slot_index: int, image_path: str,
+                          frame=None, failed_slots: list | None = None):
         """Upload (si nécessaire) et assigne l'image au slot via applyDragPhoto.
         Approche mpc-autofill : upload_image() + insert_image() avec applyDragPhoto.
         Pas de btn_updateTransitionData — setNextStep() sauvegarde tout en avançant.
+        frame : passer le frame déjà résolu pour éviter une lookup JS par slot.
         """
         print(f"[MPC] Slot {slot_index} ← {os.path.basename(image_path)}")
 
-        frame = self._find_editor_frame(page, timeout=10_000)
+        if frame is None:
+            frame = self._find_editor_frame(page, timeout=10_000)
         if not frame:
             print(f"[MPC] ⚠ Frame éditeur non disponible pour slot {slot_index}")
             return
@@ -1036,13 +1050,13 @@ class MPCUploader:
             self._wait_upload_complete(frame, page)
             self._wait_spinner(frame, timeout=15_000)
             # Give MPC time to update dn_getImageList after the spinner hides
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(300)
             # Poll until the new pid appears in dn_getImageList (can lag on first upload)
             pids_after = self._get_pid_list(frame)
             new_pids = [p for p in pids_after if p not in pids_before]
             if not new_pids:
-                for _ in range(75):  # up to 15s (75 × 200ms)
-                    page.wait_for_timeout(200)
+                for _ in range(40):  # up to 6s (40 × 150ms)
+                    page.wait_for_timeout(150)
                     pids_after = self._get_pid_list(frame)
                     new_pids = [p for p in pids_after if p not in pids_before]
                     if new_pids:
@@ -1065,6 +1079,8 @@ class MPCUploader:
 
         if not pid:
             print(f"[MPC] ⚠ pid introuvable slot {slot_index}")
+            if failed_slots is not None:
+                failed_slots.append(slot_index)
             return
 
         self._apply_drag_photo(frame, page, slot_index, pid)
@@ -1111,7 +1127,7 @@ class MPCUploader:
                     print(f"[MPC] ⚠ getElement3 null pour slot {slot_index} — image non assignée")
                     return
                 # mpc-autofill : wait() après CHAQUE applyDragPhoto (visible → hidden sur sysdiv_wait).
-                self._wait_sysdiv(frame, page, timeout=30_000)
+                self._wait_sysdiv(frame, page, timeout=12_000)
                 print(f"[MPC] ✓ Slot {slot_index} rempli (pid={pid[:8]}…)")
                 return
             except Exception as e:
@@ -1182,7 +1198,7 @@ class MPCUploader:
     # DEBUG
     # ------------------------------------------------------------------
 
-    def _wait_sysdiv(self, frame, page, timeout=20_000) -> None:
+    def _wait_sysdiv(self, frame, page, timeout=8_000) -> None:
         """Attend que #sysdiv_wait disparaisse — pattern mpc-autofill wait().
 
         Attend d'abord que le spinner APPARAISSE (l'AJAX a démarré), puis qu'il
