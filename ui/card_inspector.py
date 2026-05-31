@@ -498,10 +498,13 @@ class CardInspectorPanel(ctk.CTkFrame):
             start_x = SIDE_PAD + max(0, (USABLE_W - total_bars_w) // 2)
             max_count = max(buckets) or 1
             font_sz = max(11, min(22, BAR_W // 4))
+            # Reserve headroom above tallest bar so count numbers never clip at the top.
+            NUMBER_CLEARANCE = font_sz + 10
+            BAR_H_MAX = max(4, BAR_AREA_H - NUMBER_CLEARANCE)
 
             for i, (lbl, cnt) in enumerate(zip(labels, buckets)):
                 x = start_x + i * (BAR_W + GAP)
-                bar_h = int((cnt / max_count) * BAR_AREA_H) if cnt > 0 else 0
+                bar_h = int((cnt / max_count) * BAR_H_MAX) if cnt > 0 else 0
                 if bar_h > 0:
                     y1 = PADDING_TOP + BAR_AREA_H - bar_h
                     canvas.create_rectangle(x, y1, x + BAR_W, PADDING_TOP + BAR_AREA_H,
@@ -679,10 +682,27 @@ class CardInspectorPanel(ctk.CTkFrame):
         ws = self.app.workspace
         ws.update_idletasks()
 
+        # DPI scale: CTkToplevel.geometry() scales WxH (logical→physical) but NOT +x+y.
+        # +x+y must be physical pixels to center correctly.
+        try:
+            from customtkinter import ScalingTracker
+            _scale = ScalingTracker.get_window_scaling(self.app)
+        except Exception:
+            _scale = max(1.0, self.app.winfo_fpixels('1i') / 96.0)
+
         img_w = 380
         img_h = int(img_w * _CARD_RATIO)
-        px = max(0, ws.winfo_rootx() + (ws.winfo_width() - img_w) // 2)
-        py = max(0, ws.winfo_rooty() + (ws.winfo_height() - img_h) // 2)
+
+        ws_rx = ws.winfo_rootx()
+        ws_ry = ws.winfo_rooty()
+        ws_pw = ws.winfo_width()
+        ws_ph = ws.winfo_height()
+
+        # Physical popup size (CTk will upscale the logical WxH)
+        phys_w = round(img_w * _scale)
+        phys_h = round(img_h * _scale)
+        px = max(0, ws_rx + (ws_pw - phys_w) // 2)
+        py = max(0, ws_ry + (ws_ph - phys_h) // 2)
 
         popup = ctk.CTkToplevel(self.app)
         popup.overrideredirect(True)
