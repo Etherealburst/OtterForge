@@ -132,7 +132,8 @@ class BatchImporter:
 
         return result
 
-    def import_txt(self, path: str, progress_callback=None, upscale_callback=None) -> tuple[list[dict], list[dict]]:
+    def import_txt(self, path: str, progress_callback=None, upscale_callback=None,
+                   watermark=None) -> tuple[list[dict], list[dict]]:
         """
         Importe toutes les cartes depuis un fichier TXT.
 
@@ -243,6 +244,18 @@ class BatchImporter:
             with ThreadPoolExecutor(max_workers=2) as pool:
                 for idx, face_index, fp in pool.map(_upscale_one, upscale_tasks):
                     final_face_paths[(idx, face_index)] = fp
+
+        # Apply proxy watermark to all final images (if requested)
+        if watermark is not None:
+            for idx in range(len(parsed_lines)):
+                result = download_results.get(idx)
+                if result is None or (isinstance(result, dict) and "skip" in result):
+                    continue
+                card_json, face_paths, _ = result
+                for fi in range(len(face_paths)):
+                    fp = final_face_paths.get((idx, fi))
+                    if fp and os.path.exists(fp):
+                        watermark.apply(fp, card_json)
 
         # Construction des cartes dans l'ordre original
         cards = []

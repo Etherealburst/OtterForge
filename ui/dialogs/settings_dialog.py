@@ -29,7 +29,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._upscaler = upscaler
 
         self.title("Settings")
-        self.geometry("520x420")
+        self.geometry("520x560")
         self.resizable(False, False)
         self.grab_set()
         self.focus_set()
@@ -48,6 +48,20 @@ class SettingsDialog(ctk.CTkToplevel):
                 "decks_dir", config.DECKS_DIR
             )),
         }
+
+        self._watermark_var = ctk.BooleanVar(
+            value=bool(current_settings.get("proxy_watermark", True))
+        )
+
+        _mode_labels = {
+            "name_only":       "Name only",
+            "fetch_metadata":  "Fetch metadata",
+            "frame_overlay":   "Frame overlay",
+        }
+        saved_mode = current_settings.get("custom_artwork_mode", "name_only")
+        self._artwork_mode_var = ctk.StringVar(
+            value=_mode_labels.get(saved_mode, "Name only")
+        )
 
         self._build()
 
@@ -99,6 +113,55 @@ class SettingsDialog(ctk.CTkToplevel):
         for label, key in [("Cache", "cache_dir"), ("Output", "output_dir"), ("Decks", "decks_dir")]:
             _folder_row(scroll, label, self._vars[key], self._browse_dir)
 
+        # ── PROXY WATERMARK ───────────────────────────────────────────────────
+        _section(scroll, "PROXY WATERMARK")
+
+        wm_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        wm_row.pack(fill="x", padx=20, pady=(0, 4))
+
+        ctk.CTkSwitch(
+            wm_row,
+            text='Add "OtterForge Proxy - Not for sale" stamp to all card images',
+            variable=self._watermark_var,
+            font=ctk.CTkFont(size=11),
+            onvalue=True, offvalue=False,
+        ).pack(side="left", fill="x")
+
+        ctk.CTkLabel(
+            scroll,
+            text="Applied after download/upscaling. Replaces the original MTG copyright line.",
+            font=ctk.CTkFont(size=10), text_color="#a09aaa", anchor="w",
+        ).pack(fill="x", padx=20, pady=(0, 10))
+
+        # ── CUSTOM ARTWORK ────────────────────────────────────────────────────
+        _section(scroll, "CUSTOM ARTWORK (+ Custom button)")
+
+        ctk.CTkLabel(
+            scroll, text="When associating a custom image with a real card name:",
+            font=ctk.CTkFont(size=11), anchor="w",
+        ).pack(fill="x", padx=20, pady=(0, 6))
+
+        ctk.CTkSegmentedButton(
+            scroll,
+            values=["Name only", "Fetch metadata", "Frame overlay"],
+            variable=self._artwork_mode_var,
+            font=ctk.CTkFont(size=11),
+            height=32,
+        ).pack(fill="x", padx=20, pady=(0, 4))
+
+        mode_hints = {
+            "Name only":      "Image used as-is. Card name used for deck list only.",
+            "Fetch metadata": "Fetches year/set/artist from Scryfall and applies the proxy stamp.",
+            "Frame overlay":  "Downloads the card frame from Scryfall and pastes your artwork into the art box.",
+        }
+        self._mode_hint_label = ctk.CTkLabel(
+            scroll, text=mode_hints.get(self._artwork_mode_var.get(), ""),
+            font=ctk.CTkFont(size=10), text_color="#a09aaa", anchor="w",
+            wraplength=460,
+        )
+        self._mode_hint_label.pack(fill="x", padx=20, pady=(0, 10))
+        self._artwork_mode_var.trace_add("write", self._update_mode_hint)
+
     def _refresh_esrgan_status(self):
         exe = os.path.join(self._vars["realesrgan_dir"].get(),
                            "realesrgan-ncnn-vulkan.exe")
@@ -113,8 +176,24 @@ class SettingsDialog(ctk.CTkToplevel):
         if path:
             var.set(os.path.normpath(path))
 
+    def _update_mode_hint(self, *_):
+        hints = {
+            "Name only":      "Image used as-is. Card name used for deck list only.",
+            "Fetch metadata": "Fetches year/set/artist from Scryfall and applies the proxy stamp.",
+            "Frame overlay":  "Downloads the card frame from Scryfall and pastes your artwork into the art box.",
+        }
+        self._mode_hint_label.configure(text=hints.get(self._artwork_mode_var.get(), ""))
+
     def _save(self):
-        self.result = {k: v.get() for k, v in self._vars.items()}
+        result = {k: v.get() for k, v in self._vars.items()}
+        result["proxy_watermark"] = bool(self._watermark_var.get())
+        mode_map = {
+            "Name only":      "name_only",
+            "Fetch metadata": "fetch_metadata",
+            "Frame overlay":  "frame_overlay",
+        }
+        result["custom_artwork_mode"] = mode_map.get(self._artwork_mode_var.get(), "name_only")
+        self.result = result
         self.destroy()
 
 

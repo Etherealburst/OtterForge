@@ -29,6 +29,8 @@ from ui.card_inspector import CardInspectorPanel
 from ui.deck_tabs import DeckTabs
 from ui.card_back_picker import CardBackPickerDialog
 from ui.dialogs.import_confirm_dialog import ImportConfirmDialog
+from ui.dialogs.import_source_dialog import ImportSourceDialog
+from ui.dialogs.folder_import_dialog import FolderImportDialog, find_images_in_folder
 from ui.dialogs.export_dialog import ExportModeDialog
 from ui.dialogs.mpc_upload_dialog import MPCUploadDialog
 from ui.dialogs.settings_dialog import SettingsDialog
@@ -41,6 +43,7 @@ from engine.mpc_print_engine import MPCPrintEngine
 from engine.batch_importer import BatchImporter
 from engine.upscaler import ImageUpscaler
 from engine.mpc_uploader import MPCUploader
+from engine.proxy_watermark import ProxyWatermark
 
 from config import CACHE_DIR, OUTPUT_DIR, DECKS_DIR, BASE_DIR
 
@@ -112,6 +115,7 @@ class OtterForgeApp(_AppBase):
         self.print_engine = MPCPrintEngine()
         self.batch_importer = BatchImporter()
         self.upscaler = ImageUpscaler()
+        self._watermark = ProxyWatermark()
 
         # Charge les decks sauvegardés, ou crée un deck par défaut
         self._load_saved_decks()
@@ -291,6 +295,18 @@ class OtterForgeApp(_AppBase):
                 self.main_frame.paneconfigure(self.sidebar, minsize=160)
 
     # ======================================================================
+    # SETTINGS HELPERS
+    # ======================================================================
+
+    @property
+    def _watermark_enabled(self) -> bool:
+        return bool(self._user_config.get("settings", {}).get("proxy_watermark", True))
+
+    @property
+    def _artwork_mode(self) -> str:
+        return self._user_config.get("settings", {}).get("custom_artwork_mode", "name_only")
+
+    # ======================================================================
     # RECHERCHE ET AJOUT DE CARTE — THREAD-SAFE
     # ======================================================================
 
@@ -387,6 +403,12 @@ class OtterForgeApp(_AppBase):
                         except Exception:
                             final_path = image_path
                 final_paths.append(final_path)
+
+            # Apply proxy watermark to each final image if enabled
+            if self._watermark_enabled:
+                for fp in final_paths:
+                    if os.path.exists(fp):
+                        self._watermark.apply(fp, card_json)
 
             # Face0 = recto de la carte ; face1 = verso DFC (back_image_path)
             face_name = faces[0]["name"] if faces else card_json["name"]
@@ -550,14 +572,23 @@ class OtterForgeApp(_AppBase):
     # ======================================================================
 
     def import_txt_deck(self) -> None:
-        """Importe un deck depuis un fichier TXT."""
+        """Importe un deck depuis un fichier TXT ou un dossier d'images."""
+        source_dlg = ImportSourceDialog(self)
+        self.wait_window(source_dlg)
+        if not source_dlg.result:
+            return
+
+        if source_dlg.result == "folder":
+            self._import_from_folder()
+            return
+
+        # ── TXT flow ──────────────────────────────────────────────────────────
         path = filedialog.askopenfilename(
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
         )
         if not path:
             return
 
-        # Parse le fichier pour compter les entrées avant de demander confirmation
         try:
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -579,6 +610,82 @@ class OtterForgeApp(_AppBase):
         )
         thread.start()
 
+    def _import_from_folder(self) -> None:
+        """Ouvre un sélecteur de dossier et lance l'import d'images."""
+        folder = filedialog.askdirectory(title="Select folder with card images")
+        if not folder:
+            return
+
+        images = find_images_in_folder(folder)
+        if not images:
+            from tkinter import messagebox
+            messagebox.showinfo("Import Folder", "No images found in this folder.")
+            return
+
+        dlg = FolderImportDialog(self, folder, len(images), self.upscaler.is_available())
+        self.wait_window(dlg)
+        if not dlg.result:
+            return
+
+        self.statusbar.set_status(f"Importing {len(images)} image(s)…")
+        thread = threading.Thread(
+            target=self._import_folder_worker,
+            args=(images, dlg.result),
+            daemon=True,
+        )
+        thread.start()
+
+    def _import_folder_worker(self, image_paths: list[str], mode: str) -> None:
+        """Thread: process images from a folder and add them to the active deck.
+
+        mode: 'upload' = use images as-is (with optional watermark)
+              'upscale' = run Real-ESRGAN ×4 then watermark
+        """
+        self.after(0, self.statusbar.show_progress)
+        total = len(image_paths)
+        cards: list[dict] = []
+
+        for i, img_path in enumerate(image_paths):
+            name = os.path.splitext(os.path.basename(img_path))[0]
+            self.after(0, self.statusbar.set_status, f"Processing ({i+1}/{total}): {name}")
+            self.after(0, self.statusbar.update_progress, i + 1, total)
+
+            final_path = img_path
+
+            if mode == "upscale":
+                out_path = os.path.splitext(img_path)[0] + "_1200dpi.png"
+                if os.path.exists(out_path):
+                    final_path = out_path
+                else:
+                    try:
+                        final_path = self.upscaler.upscale_to_1200dpi(img_path, out_path)
+                    except Exception as e:
+                        print(f"[App] Folder upscale failed for {name!r}: {e} — using original")
+                        final_path = img_path
+
+            if self._watermark_enabled:
+                self._watermark.apply(final_path)
+
+            cards.append({"name": name, "image_path": os.path.normpath(final_path), "count": 1})
+
+        self.after(0, self._on_folder_import_complete, cards)
+
+    def _on_folder_import_complete(self, cards: list[dict]) -> None:
+        """Appelé dans le thread UI après l'import dossier."""
+        if cards:
+            self._push_undo_snapshot()
+            self.deck_manager.add_cards_bulk(cards)
+            self._refresh_ui()
+            self.inspector.refresh_stats()
+
+        self.statusbar.set_status(f"{len(cards)} image(s) imported from folder")
+        self.statusbar.hide_progress()
+
+        if cards:
+            self._auto_save()
+            from tkinter import messagebox
+            messagebox.showinfo("Folder Import", f"{len(cards)} image(s) imported successfully.")
+
     def _import_txt_worker(self, path: str) -> None:
         """Exécuté dans un thread séparé pour l'import TXT batch."""
         self.after(0, self.statusbar.show_progress)
@@ -591,11 +698,14 @@ class OtterForgeApp(_AppBase):
             self.after(0, self.statusbar.set_status, f"Upscaling ({current}/{total}): {card_label}")
             self.after(0, self.statusbar.update_progress, current, total)
 
+        watermark = self._watermark if self._watermark_enabled else None
+
         try:
             cards, skipped = self.batch_importer.import_txt(
                 path,
                 progress_callback=progress,
                 upscale_callback=upscale_progress,
+                watermark=watermark,
             )
             self.after(0, self._on_import_complete, cards, skipped)
         except Exception as e:
@@ -1061,7 +1171,15 @@ class OtterForgeApp(_AppBase):
             self.add_custom_image(path)
 
     def add_custom_image(self, path: str) -> None:
-        """Crée une carte custom depuis un fichier image local et l'ajoute au deck actif."""
+        """Crée une carte custom depuis un fichier image local et l'ajoute au deck actif.
+
+        Behaviour depends on self._artwork_mode (Settings → Custom Artwork):
+          name_only      — use image as-is, just ask for name
+          fetch_metadata — ask for name, fetch Scryfall metadata, apply watermark on a copy
+          frame_overlay  — ask for name, overlay artwork on Scryfall card frame, apply watermark
+        """
+        mode = self._artwork_mode
+
         dialog = ctk.CTkInputDialog(
             text=f"Card name:\n{os.path.basename(path)}",
             title="Custom image",
@@ -1069,8 +1187,102 @@ class OtterForgeApp(_AppBase):
         name = dialog.get_input()
         if not name or not name.strip():
             return
+        name = name.strip()
 
-        card = Card(name.strip(), os.path.normpath(path))
+        if mode == "name_only":
+            final_path = os.path.normpath(path)
+        else:
+            # Modes that need Scryfall — do the work in a thread to avoid freezing
+            self.statusbar.set_status(f"Fetching card data for {name!r}…")
+            self.statusbar.show_indeterminate(f"Fetching: {name}…")
+            threading.Thread(
+                target=self._custom_image_worker,
+                args=(path, name, mode),
+                daemon=True,
+            ).start()
+            return
+
+        self._add_custom_card(name, final_path)
+
+    def _custom_image_worker(self, orig_path: str, card_name: str, mode: str) -> None:
+        """Thread: fetch Scryfall data and process custom artwork."""
+        import shutil
+        try:
+            custom_cache = os.path.join(BASE_DIR, "cache", "custom")
+            os.makedirs(custom_cache, exist_ok=True)
+
+            card_json = self.scryfall.get_card(card_name)
+            if not card_json:
+                print(f"[App] Custom artwork: {card_name!r} not found on Scryfall — fallback name_only")
+                self.after(0, self._add_custom_card, card_name, os.path.normpath(orig_path))
+                return
+
+            safe = card_name.replace(" ", "_").replace("/", "-")[:40]
+            ext = os.path.splitext(orig_path)[1] or ".png"
+
+            if mode == "frame_overlay":
+                frame_path = self.scryfall.download_image(card_json, folder=custom_cache)
+                if frame_path:
+                    overlay_out = os.path.join(custom_cache, f"{safe}_overlay.png")
+                    final_path = self._overlay_artwork_on_frame(orig_path, frame_path, overlay_out)
+                else:
+                    final_path = os.path.join(custom_cache, f"{safe}_custom{ext}")
+                    shutil.copy2(orig_path, final_path)
+            else:
+                # fetch_metadata: copy to cache and apply watermark
+                final_path = os.path.join(custom_cache, f"{safe}_custom{ext}")
+                shutil.copy2(orig_path, final_path)
+
+            if self._watermark_enabled:
+                self._watermark.apply(final_path, card_json)
+
+            self.after(0, self._add_custom_card, card_name, os.path.normpath(final_path))
+        except Exception as e:
+            print(f"[App] Custom image worker error: {e}")
+            self.after(0, self.statusbar.hide_progress)
+            self.after(0, self.statusbar.set_status, f"Error processing custom image: {e}")
+
+    @staticmethod
+    def _overlay_artwork_on_frame(artwork_path: str, frame_path: str, output_path: str) -> str:
+        """Paste custom artwork into the art box area of a Scryfall card image.
+
+        Art box proportions for standard MTG normal layout (745×1040 Scryfall PNG):
+          left=4%, right=96%, top=9%, bottom=52%
+        Returns output_path.
+        """
+        from PIL import Image as _Image
+        try:
+            frame = _Image.open(frame_path).convert("RGB")
+            art   = _Image.open(artwork_path).convert("RGB")
+            fw, fh = frame.size
+
+            ax0 = int(fw * 0.04)
+            ax1 = int(fw * 0.96)
+            ay0 = int(fh * 0.09)
+            ay1 = int(fh * 0.52)
+            box_w = ax1 - ax0
+            box_h = ay1 - ay0
+
+            scale = min(box_w / art.width, box_h / art.height)
+            new_w = round(art.width  * scale)
+            new_h = round(art.height * scale)
+            art_resized = art.resize((new_w, new_h), _Image.LANCZOS)
+
+            x_off = ax0 + (box_w - new_w) // 2
+            y_off = ay0 + (box_h - new_h) // 2
+            frame.paste(art_resized, (x_off, y_off))
+            frame.save(output_path, "PNG", compress_level=9, optimize=True)
+            print(f"[App] Frame overlay saved → {output_path}")
+            return output_path
+        except Exception as e:
+            print(f"[App] Frame overlay failed: {e} — using original artwork")
+            import shutil
+            shutil.copy2(artwork_path, output_path)
+            return output_path
+
+    def _add_custom_card(self, name: str, final_path: str) -> None:
+        """Add a custom card to the active deck (must be called on main thread)."""
+        card = Card(name, final_path)
 
         self._push_undo_snapshot()
         deck = self.deck_manager.active_deck()
@@ -1086,7 +1298,8 @@ class OtterForgeApp(_AppBase):
             self._auto_save()
 
         self._update_statusbar_info()
-        self.statusbar.set_status(f"Image added: {name.strip()}")
+        self.statusbar.hide_progress()
+        self.statusbar.set_status(f"Image added: {name}")
 
     # ======================================================================
     # SYNC CARD BACK + REFRESH UI
