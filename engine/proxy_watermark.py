@@ -69,7 +69,7 @@ class ProxyWatermark:
             draw.text((pad_x, y2), line2, fill=(150, 144, 140), font=font2)
 
         img.save(image_path, "PNG", compress_level=9, optimize=True)
-        print(f"[ProxyWatermark] Applied → {os.path.basename(image_path)}")
+        print(f"[ProxyWatermark] Applied: {os.path.basename(image_path)}")
 
     # ── text builders ─────────────────────────────────────────────────────────
 

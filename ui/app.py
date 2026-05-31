@@ -618,7 +618,6 @@ class OtterForgeApp(_AppBase):
 
         images = find_images_in_folder(folder)
         if not images:
-            from tkinter import messagebox
             messagebox.showinfo("Import Folder", "No images found in this folder.")
             return
 
@@ -683,7 +682,6 @@ class OtterForgeApp(_AppBase):
 
         if cards:
             self._auto_save()
-            from tkinter import messagebox
             messagebox.showinfo("Folder Import", f"{len(cards)} image(s) imported successfully.")
 
     def _import_txt_worker(self, path: str) -> None:
@@ -1217,7 +1215,10 @@ class OtterForgeApp(_AppBase):
                 self.after(0, self._add_custom_card, card_name, os.path.normpath(orig_path))
                 return
 
-            safe = card_name.replace(" ", "_").replace("/", "-")[:40]
+            safe = card_name
+            for ch in r'\/:*?"<>|':
+                safe = safe.replace(ch, "-")
+            safe = safe.strip().replace(" ", "_")[:40]
             ext = os.path.splitext(orig_path)[1] or ".png"
 
             if mode == "frame_overlay":
