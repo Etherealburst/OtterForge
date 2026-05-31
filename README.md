@@ -8,7 +8,7 @@ OtterForge is a Windows desktop app that lets you build proxy MTG decks from scr
 
 ## Download
 
-**[⬇ Download OtterForge v1.0.0 (Windows, ~370 MB)](https://github.com/Etherealburst/OtterForge/releases/tag/v1.0.0)**
+**[⬇ Download OtterForge v1.1.0 (Windows, ~370 MB)](https://github.com/Etherealburst/OtterForge/releases/tag/v1.1.0)**
 
 Unzip anywhere → double-click `OtterForge.exe` → done. No installation required.
 
@@ -18,6 +18,8 @@ Unzip anywhere → double-click `OtterForge.exe` → done. No installation requi
 
 - **Card search** — Search any Magic card by name via the Scryfall API (fuzzy matching, set + collector number, Moxfield/Arena format)
 - **Bulk import** — Paste or load a `.txt` deck list and import the entire deck at once
+- **Folder import** — Import card images directly from a local folder (custom artwork, alter art, unofficial cards)
+- **Proxy watermark** — Automatically stamps each card with an OtterForge proxy label (set, CN, artist, year)
 - **Double-faced cards** — Both faces are downloaded, stored, and handled automatically (DFC front + back)
 - **AI upscaling** — Optional Real-ESRGAN ×4 upscaling to 1200 DPI for sharper prints (requires separate download)
 - **Multiple decks** — Work on several decks simultaneously with tabbed navigation

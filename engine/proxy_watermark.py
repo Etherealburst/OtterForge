@@ -38,7 +38,15 @@ class ProxyWatermark:
     def apply(self, image_path: str, card_json: dict | None = None) -> None:
         """Modify the image at image_path in-place."""
         try:
-            img = Image.open(image_path).convert("RGB")
+            raw = Image.open(image_path)
+            if raw.mode in ("RGBA", "LA", "PA"):
+                # Composite onto the watermark background colour so transparency
+                # doesn't go black when we later drop to RGB.
+                bg = Image.new("RGBA", raw.size, (14, 11, 19, 255))
+                bg.paste(raw, mask=raw.split()[-1])
+                img = bg.convert("RGB")
+            else:
+                img = raw.convert("RGB")
         except Exception as e:
             print(f"[ProxyWatermark] Cannot open {image_path!r}: {e}")
             return
