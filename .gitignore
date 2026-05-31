@@ -45,6 +45,11 @@ installer.iss
 # Claude Code settings locaux
 .claude/
 
+# Fichiers de test manuels (artefacts de vérification, non versionnés)
+test_alpha_watermark*.png
+test_*.png
+test_*.jpg
+
 # OS
 .DS_Store
 Thumbs.db
