@@ -45,6 +45,19 @@ installer.iss
 # Claude Code settings locaux
 .claude/
 
+# Fichiers internes / dev (instructions Claude, notes internes, todo privé)
+CLAUDE.md
+HANDOFF.md
+TODO.md
+assets/CLAUDE_OtterLogosIcons.md
+assets/OTTER_APPS_BRAND_GUIDE.md
+assets/All_OtterApps_Logo_and_Icons.html
+assets/otter-icons-final.html
+
+# Screenshots de dev (pas liés au README)
+Screenshot*.png
+screenshot*.png
+
 # Fichiers de test manuels (artefacts de vérification, non versionnés)
 test_alpha_watermark*.png
 test_*.png
