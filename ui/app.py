@@ -455,7 +455,9 @@ class OtterForgeApp(_AppBase):
         if target_deck_index < len(self.deck_manager.decks):
             target_deck = self.deck_manager.decks[target_deck_index]
             if self.deck_manager.active_index == target_deck_index:
-                # Always do a full reload — guarantees correct state, no timing races.
+                # Watermark apply() modified files on disk — invalidate PIL cache so
+                # the next load reads the updated images, not the stale cached copies.
+                self.workspace._pil_cache.clear()
                 self.workspace.load_cards(target_deck.cards, scroll_to_bottom=True)
                 self.sidebar.refresh()
             self.deck_manager.save_deck_at(target_deck, self._deck_path(target_deck.name))

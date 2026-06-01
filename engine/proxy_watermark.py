@@ -1,13 +1,16 @@
 """
 engine/proxy_watermark.py
 --------------------------
-Replaces the copyright line of an MTG card image with an OtterForge proxy stamp.
+Two-zone proxy watermark for MTG cards.
 
-The copyright text ("™ & © Wizards of the Coast") lives at the right end of the
-collector bar, roughly 5 % from the bottom of the image.  We:
-  1. Sample the LOCAL background colour at that position (darkest pixels = bg).
-  2. Fill the copyright zone with that colour so the card border looks unchanged.
-  3. Draw small stamp text in an auto-adjusted colour (dark on light bg, light on dark).
+Collector bar layout (left → right):
+  [CN number]  [set symbol ~center]  [™ & © Wizards of the Coast]
+
+Drawing order:
+  1. Pre-clear old stamp zone (26%→53%) — erases any previously applied stamp.
+  2. Copyright fill (53%→right edge) — hides Wizards text.
+  3. "OtterForge Proxy" tight box at fixed position (~43 % of width).
+  4. "Not for sale" small text, right-aligned in the copyright fill zone.
 """
 
 import os
@@ -23,17 +26,11 @@ _WINDOWS_FONT_CANDIDATES = [
     r"C:\Windows\Fonts\verdana.ttf",
 ]
 
-# The copyright zone spans from this fraction of the card height FROM THE BOTTOM
-# up to the card edge.  8 % gives room for the text to sit above the very bottom.
-_STRIP_RATIO = 0.08
-
-# The stamp starts at this fraction of card width.
-# Copyright text begins at ~52-55 % of width; stamp overlaps it from there.
-_STAMP_X = 0.533
-
-# Fraction from the bottom where the copyright TEXT BASELINE sits.
-# 0.065 = ~5px higher than 0.053 on a 420px display card.
-_COPYRIGHT_Y = 0.065
+_STRIP_RATIO  = 0.08    # strip height as fraction of card height
+_STAMP_X      = 0.193   # stamp start: ~4px left of previous 0.206
+_COPYRIGHT_X  = 0.53    # copyright fill start (right zone)
+_COPYRIGHT_Y  = 0.065   # text baseline from bottom
+_PRE_CLEAR_X  = 0.17    # left boundary of pre-clear zone
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -46,14 +43,10 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 
 def _sample_bg(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> tuple:
-    """Return the background colour of the region.
-
-    Samples on a grid, sorts by brightness and returns the median-dark 40 %
-    — those are the background pixels, not the bright text glyphs.
-    """
-    w, h = img.size
+    """Return the background colour (darkest 50 % of sampled pixels)."""
+    iw, ih = img.size
     x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(w, x1), min(h, y1)
+    x1, y1 = min(iw, x1), min(ih, y1)
     pixels = []
     sx = max(1, (x1 - x0) // 16)
     sy = max(1, (y1 - y0) // 5)
@@ -63,7 +56,6 @@ def _sample_bg(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> tuple:
     if not pixels:
         return (14, 11, 19)
     pixels.sort(key=lambda p: p[0] + p[1] + p[2])
-    # Take the darker half — that's the background, not the text
     dark = pixels[: max(1, len(pixels) // 2)]
     r = sum(p[0] for p in dark) // len(dark)
     g = sum(p[1] for p in dark) // len(dark)
@@ -72,17 +64,12 @@ def _sample_bg(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> tuple:
 
 
 def _text_color(bg: tuple) -> tuple:
-    """Dark text on light backgrounds, light text on dark backgrounds."""
-    brightness = (bg[0] + bg[1] + bg[2]) // 3
-    if brightness > 100:
-        return (25, 20, 30)     # dark on light (e.g. Sol Ring silver)
-    return (210, 206, 198)      # light on dark (e.g. Lightning Bolt)
+    if (bg[0] + bg[1] + bg[2]) // 3 > 100:
+        return (25, 20, 30)
+    return (210, 206, 198)
 
 
 class ProxyWatermark:
-    """Replaces the MTG copyright text with an OtterForge proxy stamp."""
-
-    # ── public API ────────────────────────────────────────────────────────────
 
     def apply(self, image_path: str, card_json: dict | None = None) -> None:
         """Modify the image at image_path in-place (disk write)."""
@@ -103,46 +90,61 @@ class ProxyWatermark:
         print(f"[ProxyWatermark] Applied: {os.path.basename(image_path)}")
 
     def apply_to_image(self, img: Image.Image, card_json: dict | None = None) -> None:
-        """Apply watermark in-place to an already-open PIL Image (no disk write)."""
         self._draw(img, card_json)
-
-    # ── drawing ───────────────────────────────────────────────────────────────
 
     def _draw(self, img: Image.Image, card_json: dict | None) -> None:
         w, h = img.size
 
-        strip_h = max(14, int(h * _STRIP_RATIO)) - 7
+        strip_h = max(14, int(h * _STRIP_RATIO)) - 9
         y_top   = h - strip_h
-        erase_x = int(w * _STAMP_X)
 
         stamp = self._stamp(card_json)
         if not stamp:
             return
 
-        # Font: ~1.6 % of card height — clearly readable, close to copyright size
-        sz = max(8, int(h * 0.016))
+        sz   = max(10, int(h * 0.020))
         font = _load_font(sz)
 
-        # Horizontal: a small margin right of the erase boundary
-        text_x = erase_x + max(2, w // 180)
-
-        # Vertical: align with the copyright baseline, lowered 1px
         copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
-        text_y = max(y_top + 1, copyright_y) + 1
+        text_y = max(y_top + 1, copyright_y) - 5   # 1px higher than before
 
-        # Sample background at the collector bar area for the fill colour
-        bg = _sample_bg(img, max(0, erase_x - 60), y_top, erase_x, h)
+        # Measure stamp text dimensions before pre-clear so we can limit its height
+        try:
+            bb = font.getbbox(stamp)
+            text_w    = bb[2] - bb[0]
+            text_h_px = bb[3] - bb[1]
+        except Exception:
+            text_w    = len(stamp) * max(4, sz * 6 // 10)
+            text_h_px = sz
 
         draw = ImageDraw.Draw(img)
-        # Full strip from y_top to bottom — covers Wizards copyright regardless of card variant
-        draw.rectangle([erase_x, y_top, w, h], fill=bg)
-        draw.text((text_x, text_y), stamp, fill=_text_color(bg), font=font)
 
-    # ── text builder ──────────────────────────────────────────────────────────
+        stamp_x = int(w * _STAMP_X)
+        cx      = int(w * _COPYRIGHT_X)
+
+        # ── 1. Copyright fill (right zone only — never touches CN or artist) ─
+        bg_right = _sample_bg(img, max(0, cx - 50), y_top, cx, h)
+        draw.rectangle([cx, y_top, w, h], fill=bg_right)
+
+        # ── 2. "OtterForge Proxy" — 1px bg box sampled locally, then text ────
+        text_x   = stamp_x
+        bg_stamp = _sample_bg(img, max(0, text_x - 2), y_top,
+                               min(w, text_x + text_w + 2), h)
+        draw.rectangle(
+            [text_x,              text_y - 1,
+             text_x + text_w + 1, text_y + text_h_px + 1],
+            fill=bg_stamp,
+        )
+        draw.text((text_x, text_y), stamp, fill=_text_color(bg_stamp), font=font)
+
+        # ── 4. "Not for sale" — same y-line, right-aligned in copyright zone ─
+        nfs = "Not for sale"
+        try:
+            nfs_w = font.getbbox(nfs)[2] - font.getbbox(nfs)[0]
+        except Exception:
+            nfs_w = len(nfs) * max(4, sz * 6 // 10)
+        nfs_x = w - max(4, w // 60) - nfs_w - 32
+        draw.text((nfs_x, text_y), nfs, fill=_text_color(bg_right), font=font)
 
     def _stamp(self, card_json: dict | None) -> str:
-        if card_json:
-            year = (card_json.get("released_at") or "")[:4]
-            if year:
-                return f"{year} OtterForge Proxy • Not for sale"
-        return "OtterForge Proxy • Not for sale"
+        return "OtterForge Proxy"
