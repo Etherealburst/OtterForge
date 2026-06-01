@@ -6,6 +6,9 @@ All notable changes to OtterForge are documented here.
 
 ## [v1.3.0] — 2026-05-31
 
+### Added
+- **README screenshots** — three app screenshots added to the repository main page
+
 ### Fixed
 - **Card back picker — button cropped** — dialog resized to 760×560 with a fixed-height footer; the "Use this image" and Cancel buttons are always fully visible regardless of DPI scaling
 - **Card back picker — MPCFill presets missing** — the standard MTG card back is now shown directly in the MPCFill tab if already downloaded (from a previous MPC upload), or can be fetched with a single "Download" button; download runs in a background thread and refreshes the gallery automatically

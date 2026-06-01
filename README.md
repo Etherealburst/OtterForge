@@ -14,6 +14,19 @@ Unzip anywhere → double-click `OtterForge.exe` → done. No installation requi
 
 ---
 
+## Screenshots
+
+![OtterForge — main interface](screenshots/01-interface.png)
+*Main interface — search bar, deck workspace, card inspector panel*
+
+![OtterForge — deck with cards](screenshots/02-deck-inspector.png)
+*Deck loaded with cards — Faces Only mode, inspector showing card details and stats*
+
+![OtterForge — Faces + Backs mode](screenshots/03-faces-backs.png)
+*Faces + Backs mode — card fronts paired with their backs for DFC review*
+
+---
+
 ## Features
 
 - **Card search** — Search any Magic card by name via the Scryfall API (fuzzy matching, set + collector number, Moxfield/Arena format)
