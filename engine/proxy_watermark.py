@@ -6,11 +6,14 @@ Two-zone proxy watermark for MTG cards.
 Collector bar layout (left → right):
   [CN number]  [set symbol ~center]  [™ & © Wizards of the Coast]
 
-Drawing order:
-  1. Pre-clear old stamp zone (26%→53%) — erases any previously applied stamp.
-  2. Copyright fill (53%→right edge) — hides Wizards text.
-  3. "OtterForge Proxy" tight box at fixed position (~43 % of width).
-  4. "Not for sale" small text, right-aligned in the copyright fill zone.
+Dark-bordered cards (standard behaviour):
+  1. Copyright fill (57%→right edge) — hides Wizards text via per-column median.
+  2. "OtterForge Proxy" tight opaque box at _STAMP_X, colour from CN zone.
+  3. "Not for sale" right-aligned in copyright fill zone.
+
+Light-bordered / extended-art cards (adaptive behaviour):
+  No copyright fill. Both labels get a semi-transparent dark overlay so they
+  remain readable without obscuring card art or border colour.
 """
 
 import os
@@ -31,6 +34,14 @@ _STAMP_X      = 0.193   # stamp start: ~4px left of previous 0.206
 _COPYRIGHT_X  = 0.57    # copyright fill start (right zone)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 _PRE_CLEAR_X  = 0.17    # left boundary of pre-clear zone
+
+# Brightness threshold (0–255) for border detection.
+# Below → dark border (standard black-bordered card).
+# Above → light border (white, tan, extended-art, borderless…).
+_DARK_BORDER_THRESHOLD = 40
+
+# Alpha for semi-transparent label boxes on light/adaptive cards (0–255).
+_OVERLAY_ALPHA = 180
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -67,6 +78,32 @@ def _text_color(bg: tuple) -> tuple:
     if (bg[0] + bg[1] + bg[2]) // 3 > 100:
         return (25, 20, 30)
     return (210, 206, 198)
+
+
+def _is_dark_border(img: Image.Image) -> bool:
+    """Detect border type by sampling the bottom-left corner of the card.
+
+    For standard black-bordered cards the corner is near-black.
+    For white/tan/extended-art cards it is clearly brighter.
+    """
+    w, h = img.size
+    # Sample a small strip at the very bottom-left (outside card art)
+    sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
+    brightness = (sample[0] + sample[1] + sample[2]) // 3
+    return brightness < _DARK_BORDER_THRESHOLD
+
+
+def _draw_semi_transparent_box(
+    img: Image.Image,
+    x0: int, y0: int, x1: int, y1: int,
+    alpha: int = _OVERLAY_ALPHA,
+) -> None:
+    """Composite a semi-transparent black rectangle onto img (RGB in-place)."""
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(overlay).rectangle([x0, y0, x1, y1], fill=(0, 0, 0, alpha))
+    base = img.convert("RGBA")
+    combined = Image.alpha_composite(base, overlay)
+    img.paste(combined.convert("RGB"))
 
 
 class ProxyWatermark:
@@ -106,9 +143,8 @@ class ProxyWatermark:
         font = _load_font(sz)
 
         copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
-        text_y = max(y_top + 1, copyright_y) - 5   # 1px higher than before
+        text_y = max(y_top + 1, copyright_y) - 5
 
-        # Measure stamp text dimensions before pre-clear so we can limit its height
         try:
             bb = font.getbbox(stamp)
             text_w    = bb[2] - bb[0]
@@ -117,44 +153,73 @@ class ProxyWatermark:
             text_w    = len(stamp) * max(4, sz * 6 // 10)
             text_h_px = sz
 
-        draw = ImageDraw.Draw(img)
+        nfs = "Not for sale"
+        try:
+            nfs_w = font.getbbox(nfs)[2] - font.getbbox(nfs)[0]
+        except Exception:
+            nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
         stamp_x = int(w * _STAMP_X)
         cx      = int(w * _COPYRIGHT_X)
+        nfs_x   = w - max(4, w // 60) - nfs_w - 32
 
-        # Sample bg_right before fill for "Not for sale" text colour reference
+        dark_border = _is_dark_border(img)
+
+        if dark_border:
+            self._draw_dark(img, w, h, y_top, stamp, nfs,
+                            stamp_x, cx, nfs_x, text_y, text_w, text_h_px, font)
+        else:
+            self._draw_adaptive(img, w, h, y_top, stamp, nfs,
+                                 stamp_x, nfs_x, text_y, text_w, text_h_px, nfs_w, font)
+
+    def _draw_dark(self, img, w, h, y_top, stamp, nfs,
+                   stamp_x, cx, nfs_x, text_y, text_w, text_h_px, font):
+        """Standard dark-border path: copyright fill + opaque stamp box."""
+        draw = ImageDraw.Draw(img)
+
         bg_right = _sample_bg(img, int(w * 0.70), y_top, int(w * 0.90), h)
 
-        # ── 1. Copyright fill — per-column median, no hard edge / no overflow ─
-        # For each column, take the median brightness pixel in the strip as the
-        # background colour.  Text pixels (minority, high contrast) fall outside
-        # the median and get overwritten; the rest of the strip looks unchanged.
+        # ── 1. Copyright fill — per-column median ────────────────────────────
         for x in range(cx, w):
             col = [img.getpixel((x, y)) for y in range(y_top, h)]
             col.sort(key=lambda p: p[0] + p[1] + p[2])
             bg_col = col[len(col) // 2]
             draw.line([(x, y_top), (x, h - 1)], fill=bg_col)
 
-        # ── 2. "OtterForge Proxy" — tight bg box, colour from left footer edge ─
-        # Sample from the far-left CN zone (0–12 %) which is untouched and holds
-        # the true card-frame colour.
-        text_x   = stamp_x
+        # ── 2. "OtterForge Proxy" — tight opaque box, colour from CN zone ────
         bg_stamp = _sample_bg(img, 0, y_top, int(w * 0.12), h)
         draw.rectangle(
-            [text_x,              text_y - 1,
-             text_x + text_w + 1, text_y + text_h_px + 1],
+            [stamp_x,              text_y - 1,
+             stamp_x + text_w + 1, text_y + text_h_px + 1],
             fill=bg_stamp,
         )
-        draw.text((text_x, text_y), stamp, fill=_text_color(bg_stamp), font=font)
+        draw.text((stamp_x, text_y), stamp, fill=_text_color(bg_stamp), font=font)
 
-        # ── 4. "Not for sale" — same y-line, right-aligned in copyright zone ─
-        nfs = "Not for sale"
-        try:
-            nfs_w = font.getbbox(nfs)[2] - font.getbbox(nfs)[0]
-        except Exception:
-            nfs_w = len(nfs) * max(4, sz * 6 // 10)
-        nfs_x = w - max(4, w // 60) - nfs_w - 32
+        # ── 3. "Not for sale" — right-aligned in copyright zone ──────────────
         draw.text((nfs_x, text_y), nfs, fill=_text_color(bg_right), font=font)
+
+    def _draw_adaptive(self, img, w, h, y_top, stamp, nfs,
+                       stamp_x, nfs_x, text_y, text_w, text_h_px, nfs_w, font):
+        """Light-border / extended-art path: semi-transparent overlays only."""
+        pad = 2
+
+        # ── "OtterForge Proxy" semi-transparent box ───────────────────────────
+        _draw_semi_transparent_box(
+            img,
+            stamp_x - pad,          text_y - pad,
+            stamp_x + text_w + pad, text_y + text_h_px + pad,
+        )
+        ImageDraw.Draw(img).text((stamp_x, text_y), stamp,
+                                 fill=(210, 206, 198), font=font)
+
+        # ── "Not for sale" semi-transparent box ──────────────────────────────
+        _draw_semi_transparent_box(
+            img,
+            nfs_x - pad,            text_y - pad,
+            nfs_x + nfs_w + pad,    text_y + text_h_px + pad,
+        )
+        ImageDraw.Draw(img).text((nfs_x, text_y), nfs,
+                                 fill=(210, 206, 198), font=font)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"
