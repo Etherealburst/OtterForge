@@ -163,19 +163,20 @@ class ProxyWatermark:
 
         stamp_x = int(w * _STAMP_X)
         cx      = int(w * _COPYRIGHT_X)
-        nfs_x   = w - max(4, w // 60) - nfs_w - 32
+        nfs_x   = w - max(4, w // 60) - nfs_w - 40  # shifted left
+        nfs_y   = text_y + sz + 2  # second collector row — set code + artist line
 
         dark_border = _is_dark_border(img)
 
         if dark_border:
             self._draw_dark(img, w, h, y_top, stamp, nfs,
-                            stamp_x, cx, nfs_x, text_y, text_w, text_h_px, font)
+                            stamp_x, cx, nfs_x, text_y, nfs_y, text_w, text_h_px, font)
         else:
             self._draw_adaptive(img, w, h, y_top, stamp, nfs,
-                                 stamp_x, nfs_x, text_y, text_w, text_h_px, nfs_w, font)
+                                 stamp_x, nfs_x, text_y, nfs_y, text_w, text_h_px, nfs_w, font)
 
     def _draw_dark(self, img, w, h, y_top, stamp, nfs,
-                   stamp_x, cx, nfs_x, text_y, text_w, text_h_px, font):
+                   stamp_x, cx, nfs_x, text_y, nfs_y, text_w, text_h_px, font):
         """Standard dark-border path: copyright fill + opaque stamp box."""
         draw = ImageDraw.Draw(img)
 
@@ -197,15 +198,15 @@ class ProxyWatermark:
         )
         draw.text((stamp_x, text_y), stamp, fill=_text_color(bg_stamp), font=font)
 
-        # ── 3. "Not for sale" — right-aligned in copyright zone ──────────────
-        draw.text((nfs_x, text_y), nfs, fill=_text_color(bg_right), font=font)
+        # ── 3. "Not for sale" — right-aligned, shifted down ──────────────────
+        draw.text((nfs_x, nfs_y), nfs, fill=_text_color(bg_right), font=font)
 
     def _draw_adaptive(self, img, w, h, y_top, stamp, nfs,
-                       stamp_x, nfs_x, text_y, text_w, text_h_px, nfs_w, font):
+                       stamp_x, nfs_x, text_y, nfs_y, text_w, text_h_px, nfs_w, font):
         """Light-border / extended-art path: outlined text, no background box."""
         draw = ImageDraw.Draw(img)
         _outlined_text(draw, (stamp_x, text_y), stamp, font)
-        _outlined_text(draw, (nfs_x,   text_y), nfs,   font)
+        _outlined_text(draw, (nfs_x,   nfs_y),  nfs,   font)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"
