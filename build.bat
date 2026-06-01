@@ -66,20 +66,28 @@ if errorlevel 1 (
   echo  [2/4] Browsers copied successfully.
 )
 
-:: ── Step 3: Copy README ──────────────────────────────────────
+:: ── Step 3: Copy card_backs ──────────────────────────────────
 echo.
-echo  [3/4] Copying README...
-copy /Y "README.md" "dist\OtterForge\README.md" >nul
-echo  [3/4] Done.
+echo  [3/5] Copying card_backs (MPCFILL + user backs)...
+if not exist "dist\OtterForge\card_backs" mkdir "dist\OtterForge\card_backs"
+xcopy /E /I /Y "card_backs" "dist\OtterForge\card_backs\" >nul
+echo  [3/5] Done.
 
-:: ── Step 4: Summary ─────────────────────────────────────────
+:: ── Step 4: Copy README ──────────────────────────────────────
 echo.
-echo  [4/4] Done.
+echo  [4/5] Copying README...
+copy /Y "README.md" "dist\OtterForge\README.md" >nul
+echo  [4/5] Done.
+
+:: ── Step 5: Summary ─────────────────────────────────────────
+echo.
+echo  [5/5] Done.
 echo.
 echo  ============================================================
 echo   Output folder : dist\OtterForge\
 echo   To distribute : zip the entire dist\OtterForge\ folder
 echo                   (~200-300 MB with Chromium included)
+echo   Includes      : card_backs\ (MPCFILL.png, MPCFILL PG.png + all)
 echo  ============================================================
 echo.
 pause

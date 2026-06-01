@@ -4,6 +4,13 @@ All notable changes to OtterForge are documented here.
 
 ---
 
+## [v1.4.1] — 2026-06-01
+
+### Fixed
+- **MPCFill card backs missing on first launch** — the `card_backs/` folder (including `MPCFILL.png` and `MPCFILL PG.png`) was not bundled in the distributed zip, causing the Card Back Picker's MPCFill tab to appear empty on a fresh install; it is now always included in the build
+
+---
+
 ## [v1.3.0] — 2026-05-31
 
 ### Added
