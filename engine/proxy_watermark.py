@@ -71,6 +71,23 @@ def _sample_bg(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> tuple:
     return (r, g, b)
 
 
+def _outlined_text(
+    draw: ImageDraw.ImageDraw,
+    pos: tuple,
+    text: str,
+    font,
+    fill: tuple = (220, 216, 208),
+    outline: tuple = (0, 0, 0),
+) -> None:
+    """Draw text with a 1-pixel outline — readable on any background."""
+    x, y = pos
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx or dy:
+                draw.text((x + dx, y + dy), text, fill=outline, font=font)
+    draw.text(pos, text, fill=fill, font=font)
+
+
 def _text_color(bg: tuple) -> tuple:
     if (bg[0] + bg[1] + bg[2]) // 3 > 100:
         return (25, 20, 30)
@@ -185,28 +202,10 @@ class ProxyWatermark:
 
     def _draw_adaptive(self, img, w, h, y_top, stamp, nfs,
                        stamp_x, nfs_x, text_y, text_w, text_h_px, nfs_w, font):
-        """Light-border / extended-art path: opaque box matching border colour."""
-        # Sample the actual border colour (bottom-left corner, untouched)
-        border_color = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
-        text_col = _text_color(border_color)
-        pad = 2
+        """Light-border / extended-art path: outlined text, no background box."""
         draw = ImageDraw.Draw(img)
-
-        # ── "OtterForge Proxy" box ────────────────────────────────────────────
-        draw.rectangle(
-            [stamp_x - pad,          text_y - pad,
-             stamp_x + text_w + pad, text_y + text_h_px + pad],
-            fill=border_color,
-        )
-        draw.text((stamp_x, text_y), stamp, fill=text_col, font=font)
-
-        # ── "Not for sale" box ────────────────────────────────────────────────
-        draw.rectangle(
-            [nfs_x - pad,            text_y - pad,
-             nfs_x + nfs_w + pad,    text_y + text_h_px + pad],
-            fill=border_color,
-        )
-        draw.text((nfs_x, text_y), nfs, fill=text_col, font=font)
+        _outlined_text(draw, (stamp_x, text_y), stamp, font)
+        _outlined_text(draw, (nfs_x,   text_y), nfs,   font)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"
