@@ -448,7 +448,6 @@ class CardInspectorPanel(ctk.CTkFrame):
         popup = ctk.CTkToplevel(self.app)
         popup.title("Mana Curve")
         popup.resizable(True, True)
-        popup.attributes("-topmost", True)
         popup.geometry(f"{POP_W}x{POP_H}+{px}+{py}")
         popup.grab_set()
         popup.lift()
@@ -706,7 +705,6 @@ class CardInspectorPanel(ctk.CTkFrame):
 
         popup = ctk.CTkToplevel(self.app)
         popup.overrideredirect(True)
-        popup.attributes("-topmost", True)
         popup.geometry(f"{img_w}x{img_h}+{px}+{py}")
         popup.lift()
         self._zoom_popup = popup

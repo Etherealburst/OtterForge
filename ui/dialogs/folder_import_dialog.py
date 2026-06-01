@@ -6,6 +6,7 @@ Asks whether to upload images as-is or upscale with Real-ESRGAN.
 """
 
 import os
+import re
 import customtkinter as ctk
 
 
@@ -22,6 +23,37 @@ def find_images_in_folder(folder: str) -> list[str]:
     except Exception:
         pass
     return result
+
+
+def normalize_card_name(stem: str) -> str:
+    """Extract base card name from a filename stem by stripping common version suffixes.
+
+    Examples:
+      "Lightning Bolt (2)"  → "Lightning Bolt"
+      "Snapcaster Mage_v2"  → "Snapcaster Mage"
+      "Force of Will_alt"   → "Force of Will"
+      "Bolt_2"              → "Bolt"
+    """
+    name = stem
+    name = re.sub(r'\s*\(\d+\)\s*$', '', name)           # " (2)"
+    name = re.sub(r'[\s_]v\d+\s*$', '', name, flags=re.IGNORECASE)   # "_v2", " v2"
+    name = re.sub(r'[\s_]alt\d*\s*$', '', name, flags=re.IGNORECASE) # "_alt", "_alt2"
+    name = re.sub(r'[\s_]art\d*\s*$', '', name, flags=re.IGNORECASE) # "_art", "_art2"
+    name = re.sub(r'_\d+\s*$', '', name)                 # "_2", "_10"
+    return name.strip()
+
+
+def group_images_by_card_name(image_paths: list[str]) -> dict[str, list[str]]:
+    """Group image paths by normalized card name, preserving insertion order.
+
+    Returns {normalized_name: [path, ...]}. Groups with >1 path are conflicts.
+    """
+    groups: dict[str, list[str]] = {}
+    for path in image_paths:
+        stem = os.path.splitext(os.path.basename(path))[0]
+        key = normalize_card_name(stem)
+        groups.setdefault(key, []).append(path)
+    return groups
 
 
 class FolderImportDialog(ctk.CTkToplevel):

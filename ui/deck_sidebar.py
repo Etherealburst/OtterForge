@@ -9,6 +9,7 @@ import os
 import threading
 import tkinter as tk
 import customtkinter as ctk
+from collections import Counter
 from PIL import Image
 
 
@@ -314,26 +315,49 @@ class DeckSidebar(ctk.CTkFrame):
             ).pack(pady=20)
             return
 
-        for card in cards:
-            self._build_row(card)
+        # Show artwork filename as subtitle when multiple entries share the same card name.
+        name_counts = Counter(c.name for c in cards)
+        name_seen: dict[str, int] = {}
 
-    def _build_row(self, card) -> None:
+        for card in cards:
+            subtitle = None
+            if name_counts[card.name] > 1:
+                occ = name_seen.get(card.name, 0) + 1
+                name_seen[card.name] = occ
+                fname = os.path.splitext(os.path.basename(card.image_path))[0]
+                if len(fname) > 22:
+                    fname = fname[:20] + "…"
+                subtitle = fname
+            self._build_row(card, subtitle=subtitle)
+
+    def _build_row(self, card, subtitle: str | None = None) -> None:
         RB = "#221f28"
         CTRL_W = 152
 
         row = tk.Frame(self.list_frame, bg=RB)
         row.pack(fill="x", pady=1, padx=2)
 
-        # Nom — tk.Label (scaling DPI correct)
+        # Name (and optional per-artwork filename when multiple artworks share the same name)
         max_chars = max(6, (self._current_w - CTRL_W - 20) // 11)
         truncated = len(card.name) > max_chars
         name_text = card.name[:max_chars - 1] + "…" if truncated else card.name
-        name_lbl = tk.Label(row, text=name_text, anchor="w", bg=RB, fg="#e8e4f0",
+
+        pad_y = (10, 8) if subtitle else (14, 14)
+        name_container = tk.Frame(row, bg=RB)
+        name_container.pack(side="left", padx=(8, 4), pady=pad_y, expand=True, fill="x")
+
+        name_lbl = tk.Label(name_container, text=name_text, anchor="w", bg=RB, fg="#e8e4f0",
                             font=("Segoe UI", 20), cursor="hand2")
-        name_lbl.pack(side="left", padx=(8, 4), pady=14, expand=True, fill="x")
+        name_lbl.pack(side="top", anchor="w")
         name_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
         if truncated:
             _Tooltip(name_lbl, card.name)
+
+        if subtitle:
+            sub_lbl = tk.Label(name_container, text=subtitle, anchor="w", bg=RB, fg="#6a6478",
+                               font=("Segoe UI", 9), cursor="hand2")
+            sub_lbl.pack(side="top", anchor="w")
+            sub_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
 
         # Boutons — Canvas 2× plus grands (40×44px par bouton, police 24pt)
         c = tk.Canvas(row, bg=RB, width=CTRL_W, height=80,

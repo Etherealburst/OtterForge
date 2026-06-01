@@ -46,6 +46,7 @@ class Workspace(ctk.CTkFrame):
         self._selection_rects: list = []
         self._resize_after_id = None
         self._last_canvas_w: int = 0
+        self._toggle_pending: bool = False  # guard against rapid Faces Only ↔ Faces+Backs clicks
         self._pil_cache = collections.OrderedDict()  # (path, w, h) → PIL.Image — LRU, max MAX_PIL_CACHE entries
         self._photo_cache: dict = {}                 # id(pil_img) → ImageTk.PhotoImage
 
@@ -288,6 +289,10 @@ class Workspace(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _toggle_back_display(self) -> None:
+        if self._toggle_pending:
+            return  # previous toggle still rendering — ignore rapid click
+        self._toggle_pending = True
+        self._back_toggle_btn.configure(state="disabled")
         self._pil_cache.clear()
         self._photo_cache.clear()
         self._show_backs = not self._show_backs
@@ -297,6 +302,9 @@ class Workspace(ctk.CTkFrame):
         deck = self.app.deck_manager.active_deck()
         if deck and deck.cards:
             self._start_progressive_load(deck.cards)
+        else:
+            self._toggle_pending = False
+            self._back_toggle_btn.configure(state="normal")
 
     def update_back_preview(self, path: str | None) -> None:
         """Met à jour la vignette d'endos dans la zoom bar."""
@@ -344,39 +352,17 @@ class Workspace(ctk.CTkFrame):
         self._start_progressive_load(cards)
 
     def append_cards(self, new_cards: list, scroll_to_bottom: bool = False) -> None:
-        """Add new cards to the canvas without destroying existing items.
+        """Safe wrapper: always delegates to load_cards for guaranteed correctness.
 
-        Falls back to load_cards() when the canvas is empty or when centering
-        would shift (total cards still fits in a single row).
+        The previous incremental path had race conditions between threads and
+        version counters that caused occasional duplicates.  A full reload is
+        fast enough for typical deck sizes and is always correct.
         """
         if not new_cards:
             return
-
-        canvas_w = max(self.canvas.winfo_width(), 500)
-        spacing_x = self._spacing_x
-        card_w = self._card_w
-        cards_per_row = max(1, canvas_w // spacing_x)
-        existing_count = len(self.cards)
-        new_total = existing_count + len(new_cards)
-
-        # If centering offset would change, fall back to a full reload
-        if (not self.canvas_items or
-                min(cards_per_row, existing_count) != min(cards_per_row, new_total)):
-            self.load_cards(list(self.cards) + list(new_cards), scroll_to_bottom=scroll_to_bottom)
-            return
-
-        self._scroll_to_bottom_on_load = scroll_to_bottom
-        self.cards.extend(new_cards)
-        self._load_version += 1
-        version = self._load_version
-
-        threading.Thread(
-            target=self._card_load_worker,
-            args=(list(new_cards), version, canvas_w, spacing_x, card_w,
-                  existing_count, new_total),
-            daemon=True,
-        ).start()
-        self.after(20, self._poll_render_queue, version)
+        deck = self.app.deck_manager.active_deck()
+        if deck:
+            self.load_cards(deck.cards, scroll_to_bottom=scroll_to_bottom)
 
     def _start_progressive_load(self, cards) -> None:
         """Vide le canvas immédiatement, puis charge les cartes via un thread + queue."""
@@ -388,6 +374,7 @@ class Workspace(ctk.CTkFrame):
         self._hover_rect = None
         self._hover_item = None
         self._image_refs.clear()
+        self._photo_cache.clear()  # stale PhotoImages freed when canvas is cleared
         # Réinitialise l'état de recherche et de sélection (les items canvas vont changer)
         self._find_matches = []
         self._find_index = -1
@@ -400,8 +387,9 @@ class Workspace(ctk.CTkFrame):
             self._update_scrollregion(50, self.START_Y)
             return
 
-        # Nouvelle queue propre pour ce chargement (annule les items de l'ancienne)
-        self._render_queue = queue.Queue()
+        # Fresh queue for this load — passed explicitly so workers and polls are bound to it.
+        render_queue = queue.Queue()
+        self._render_queue = render_queue
         self._load_version += 1
         version = self._load_version
         self._back_item_map.clear()
@@ -414,16 +402,21 @@ class Workspace(ctk.CTkFrame):
         self.app.statusbar.show_indeterminate("Loading cards...")
         threading.Thread(
             target=self._card_load_worker,
-            args=(list(self.cards), version, canvas_w, spacing_x, card_w),
+            args=(list(self.cards), version, canvas_w, spacing_x, card_w, render_queue),
             daemon=True,
         ).start()
-        self.after(10, self._poll_render_queue, version)
+        self.after(10, self._poll_render_queue, version, render_queue)
 
     def _card_load_worker(self, cards, version: int,
                           canvas_w: int, spacing_x: int, card_w: int,
+                          render_queue: queue.Queue,
                           first_global_index: int = 0,
                           total_cards: int | None = None) -> None:
         """Thread : charge chaque image PIL et la dépose dans la queue.
+
+        render_queue is passed explicitly so that if _start_progressive_load creates
+        a new queue (newer load), this worker always writes to ITS OWN queue — which
+        the version-matched poll will read. No cross-contamination, no duplicates.
 
         first_global_index : index global du premier élément de `cards` dans self.cards
                              (0 pour un chargement complet, existing_count pour un append)
@@ -504,7 +497,7 @@ class Workspace(ctk.CTkFrame):
                     if back_img is None:
                         back_img = Image.new("RGB", (card_w, card_h), (40, 37, 46))
 
-                self._render_queue.put(("card", card, img, back_img, cx, cy))
+                render_queue.put(("card", card, img, back_img, cx, cy))
             except Exception as e:
                 print(f"[Workspace] Erreur chargement {card.name!r} : {e}")
 
@@ -512,25 +505,30 @@ class Workspace(ctk.CTkFrame):
             max_x = max(max_x, cx + item_w)
             max_y = max(max_y, cy + card_h)
 
-        self._render_queue.put(("done", max_x, max_y))
+        render_queue.put(("done", max_x, max_y))
 
-    def _poll_render_queue(self, version: int) -> None:
-        """Main thread : vide la queue et met à jour le canvas."""
+    def _poll_render_queue(self, version: int, render_queue: queue.Queue,
+                           pending: list | None = None) -> None:
+        """Main thread: accumulate items then render all atomically when worker signals done."""
         if version != self._load_version:
             return
+        if pending is None:
+            pending = []
 
         try:
-            for _ in range(100):
-                item = self._render_queue.get_nowait()
+            while True:
+                item = render_queue.get_nowait()
                 if item[0] == "done":
+                    for pitem in pending:
+                        _, card, img, back_img, cx, cy = pitem
+                        self._add_card_to_canvas(card, img, back_img, cx, cy)
                     self._finalize_load(item[1], item[2], version)
                     return
-                _, card, img, back_img, cx, cy = item
-                self._add_card_to_canvas(card, img, back_img, cx, cy)
+                pending.append(item)
         except queue.Empty:
             pass
 
-        self.after(10, self._poll_render_queue, version)
+        self.after(10, self._poll_render_queue, version, render_queue, pending)
 
     def _add_card_to_canvas(self, card, img, back_img, x: int, y: int) -> None:
         """Main thread : crée les items canvas pour une carte (+ endos si activé)."""
@@ -683,6 +681,9 @@ class Workspace(ctk.CTkFrame):
             return
         self._update_scrollregion(max_x, max_y)
         self.app.statusbar.hide_progress()
+        # Re-enable toggle button now that rendering is complete
+        self._toggle_pending = False
+        self._back_toggle_btn.configure(state="normal")
         if self._scroll_to_bottom_on_load:
             self._scroll_to_bottom_on_load = False
             self.canvas.yview_moveto(1.0)
@@ -1039,10 +1040,12 @@ class Workspace(ctk.CTkFrame):
             deck = self.app.deck_manager.active_deck()
             if deck:
                 deck.cards = [c for c in deck.cards if c is not card]
-            # Nettoie le mapping text → card
-            if data.get("text_item") and data["text_item"] in self.text_to_card_item:
-                del self.text_to_card_item[data["text_item"]]
-            # Nettoie le mapping back → front
+            # Keep workspace.cards in sync so append_cards uses the right count
+            self.cards = [c for c in self.cards if c is not card]
+            # Delete text label from canvas (not just the dict mapping)
+            if data.get("text_item"):
+                self.canvas.delete(data["text_item"])
+                self.text_to_card_item.pop(data["text_item"], None)
             if data.get("back_item"):
                 self._back_item_map.pop(data["back_item"], None)
 

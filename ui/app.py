@@ -30,7 +30,8 @@ from ui.deck_tabs import DeckTabs
 from ui.card_back_picker import CardBackPickerDialog
 from ui.dialogs.import_confirm_dialog import ImportConfirmDialog
 from ui.dialogs.import_source_dialog import ImportSourceDialog
-from ui.dialogs.folder_import_dialog import FolderImportDialog, find_images_in_folder
+from ui.dialogs.folder_import_dialog import FolderImportDialog, find_images_in_folder, group_images_by_card_name
+from ui.dialogs.artwork_picker_dialog import ArtworkPickerDialog
 from ui.dialogs.export_dialog import ExportModeDialog
 from ui.dialogs.mpc_upload_dialog import MPCUploadDialog
 from ui.dialogs.settings_dialog import SettingsDialog
@@ -404,11 +405,16 @@ class OtterForgeApp(_AppBase):
                             final_path = image_path
                 final_paths.append(final_path)
 
-            # Apply proxy watermark to each final image if enabled
+            # Apply proxy watermark to each final image if enabled.
+            # Also stamp the native PNG (workspace displays that for performance).
             if self._watermark_enabled:
                 for fp in final_paths:
                     if os.path.exists(fp):
                         self._watermark.apply(fp, card_json)
+                        if fp.endswith("_1200dpi.png"):
+                            native = fp.replace("_1200dpi.png", ".png")
+                            if os.path.exists(native):
+                                self._watermark.apply(native, card_json)
 
             # Face0 = recto de la carte ; face1 = verso DFC (back_image_path)
             face_name = faces[0]["name"] if faces else card_json["name"]
@@ -449,13 +455,8 @@ class OtterForgeApp(_AppBase):
         if target_deck_index < len(self.deck_manager.decks):
             target_deck = self.deck_manager.decks[target_deck_index]
             if self.deck_manager.active_index == target_deck_index:
-                new_entries = target_deck.cards[pre_count:]
-                if new_entries:
-                    # New card(s) added — append without full canvas redraw
-                    self.workspace.append_cards(new_entries, scroll_to_bottom=True)
-                else:
-                    # Existing card count incremented — need full reload to refresh label
-                    self.workspace.load_cards(target_deck.cards, scroll_to_bottom=True)
+                # Always do a full reload — guarantees correct state, no timing races.
+                self.workspace.load_cards(target_deck.cards, scroll_to_bottom=True)
                 self.sidebar.refresh()
             self.deck_manager.save_deck_at(target_deck, self._deck_path(target_deck.name))
 
@@ -621,31 +622,54 @@ class OtterForgeApp(_AppBase):
             messagebox.showinfo("Import Folder", "No images found in this folder.")
             return
 
-        dlg = FolderImportDialog(self, folder, len(images), self.upscaler.is_available())
+        # Group by normalized card name; show picker for conflicts (same name, multiple files).
+        groups = group_images_by_card_name(images)
+        conflict_groups = {name: paths for name, paths in groups.items() if len(paths) > 1}
+
+        image_entries: list[tuple[str, str]] = []  # (card_name, image_path)
+
+        if conflict_groups:
+            picker = ArtworkPickerDialog(self, conflict_groups)
+            self.wait_window(picker)
+            if picker.cancelled:
+                return
+            for norm_name, paths in groups.items():
+                selected = picker.selections.get(norm_name, paths) if norm_name in conflict_groups else paths
+                for path in selected:
+                    image_entries.append((norm_name, path))
+        else:
+            for norm_name, paths in groups.items():
+                for path in paths:
+                    image_entries.append((norm_name, path))
+
+        if not image_entries:
+            return
+
+        dlg = FolderImportDialog(self, folder, len(image_entries), self.upscaler.is_available())
         self.wait_window(dlg)
         if not dlg.result:
             return
 
-        self.statusbar.set_status(f"Importing {len(images)} image(s)…")
+        self.statusbar.set_status(f"Importing {len(image_entries)} image(s)…")
         thread = threading.Thread(
             target=self._import_folder_worker,
-            args=(images, dlg.result),
+            args=(image_entries, dlg.result),
             daemon=True,
         )
         thread.start()
 
-    def _import_folder_worker(self, image_paths: list[str], mode: str) -> None:
+    def _import_folder_worker(self, image_entries: list[tuple[str, str]], mode: str) -> None:
         """Thread: process images from a folder and add them to the active deck.
 
+        image_entries: list of (card_name, image_path) — name is already normalized.
         mode: 'upload' = use images as-is (with optional watermark)
               'upscale' = run Real-ESRGAN ×4 then watermark
         """
         self.after(0, self.statusbar.show_progress)
-        total = len(image_paths)
+        total = len(image_entries)
         cards: list[dict] = []
 
-        for i, img_path in enumerate(image_paths):
-            name = os.path.splitext(os.path.basename(img_path))[0]
+        for i, (name, img_path) in enumerate(image_entries):
             self.after(0, self.statusbar.set_status, f"Processing ({i+1}/{total}): {name}")
             self.after(0, self.statusbar.update_progress, i + 1, total)
 
@@ -659,11 +683,14 @@ class OtterForgeApp(_AppBase):
                     try:
                         final_path = self.upscaler.upscale_to_1200dpi(img_path, out_path)
                     except Exception as e:
-                        print(f"[App] Folder upscale failed for {name!r}: {e} — using original")
+                        print(f"[App] Folder upscale failed for {name!r}: {e} -- using original")
                         final_path = img_path
 
             if self._watermark_enabled:
                 self._watermark.apply(final_path)
+                # If upscaled, also stamp the source image so workspace display shows the watermark
+                if final_path != img_path and final_path.endswith("_1200dpi.png") and os.path.exists(img_path):
+                    self._watermark.apply(img_path)
 
             cards.append({"name": name, "image_path": os.path.normpath(final_path), "count": 1})
 
@@ -671,14 +698,16 @@ class OtterForgeApp(_AppBase):
 
     def _on_folder_import_complete(self, cards: list[dict]) -> None:
         """Appelé dans le thread UI après l'import dossier."""
-        if cards:
-            self._push_undo_snapshot()
-            self.deck_manager.add_cards_bulk(cards)
-            self._refresh_ui()
-            self.inspector.refresh_stats()
+        try:
+            if cards:
+                self._push_undo_snapshot()
+                self.deck_manager.add_cards_bulk(cards)
+                self._refresh_ui()
+                self.inspector.refresh_stats()
+        finally:
+            self.statusbar.hide_progress()
 
         self.statusbar.set_status(f"{len(cards)} image(s) imported from folder")
-        self.statusbar.hide_progress()
 
         if cards:
             self._auto_save()
@@ -696,6 +725,10 @@ class OtterForgeApp(_AppBase):
             self.after(0, self.statusbar.set_status, f"Upscaling ({current}/{total}): {card_label}")
             self.after(0, self.statusbar.update_progress, current, total)
 
+        def watermark_progress(current: int, total: int, card_label: str):
+            self.after(0, self.statusbar.set_status, f"Watermark ({current}/{total}): {card_label}")
+            self.after(0, self.statusbar.update_progress, current, total)
+
         watermark = self._watermark if self._watermark_enabled else None
 
         try:
@@ -704,6 +737,7 @@ class OtterForgeApp(_AppBase):
                 progress_callback=progress,
                 upscale_callback=upscale_progress,
                 watermark=watermark,
+                watermark_callback=watermark_progress if watermark else None,
             )
             self.after(0, self._on_import_complete, cards, skipped)
         except Exception as e:
@@ -712,18 +746,19 @@ class OtterForgeApp(_AppBase):
 
     def _on_import_complete(self, cards: list, skipped: list) -> None:
         """Appelé dans le thread UI après l'import TXT."""
-        if cards:
-            self._push_undo_snapshot()
-            self.deck_manager.add_cards_bulk(cards)
-            self._refresh_ui()  # appelle _update_statusbar_info
-            self.inspector.refresh_stats()
+        try:
+            if cards:
+                self._push_undo_snapshot()
+                self.deck_manager.add_cards_bulk(cards)
+                self._refresh_ui()
+                self.inspector.refresh_stats()
+        finally:
+            self.statusbar.hide_progress()
 
         status = f"{len(cards)} card(s) imported"
         if skipped:
             status += f" — {len(skipped)} skipped"
         self.statusbar.set_status(status)
-
-        self.statusbar.hide_progress()
 
         if not cards:
             self.statusbar.set_status("No cards imported")

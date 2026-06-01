@@ -133,7 +133,7 @@ class BatchImporter:
         return result
 
     def import_txt(self, path: str, progress_callback=None, upscale_callback=None,
-                   watermark=None) -> tuple[list[dict], list[dict]]:
+                   watermark=None, watermark_callback=None) -> tuple[list[dict], list[dict]]:
         """
         Importe toutes les cartes depuis un fichier TXT.
 
@@ -247,6 +247,7 @@ class BatchImporter:
 
         # Apply proxy watermark to all final images (if requested)
         if watermark is not None:
+            wm_targets = []
             for idx in range(len(parsed_lines)):
                 result = download_results.get(idx)
                 if result is None or (isinstance(result, dict) and "skip" in result):
@@ -255,7 +256,18 @@ class BatchImporter:
                 for fi in range(len(face_paths)):
                     fp = final_face_paths.get((idx, fi))
                     if fp and os.path.exists(fp):
-                        watermark.apply(fp, card_json)
+                        wm_targets.append((fp, card_json))
+            wm_total = len(wm_targets)
+            for wm_i, (fp, card_json) in enumerate(wm_targets):
+                card_label = card_json.get("name", os.path.basename(fp))
+                if watermark_callback:
+                    watermark_callback(wm_i + 1, wm_total, card_label)
+                watermark.apply(fp, card_json)
+                # Also stamp the native PNG so workspace display reflects the watermark
+                if fp.endswith("_1200dpi.png"):
+                    native = fp.replace("_1200dpi.png", ".png")
+                    if os.path.exists(native):
+                        watermark.apply(native, card_json)
 
         # Construction des cartes dans l'ordre original
         cards = []

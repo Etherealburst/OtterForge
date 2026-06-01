@@ -4,6 +4,23 @@ All notable changes to OtterForge are documented here.
 
 ---
 
+## [v1.2.0] — 2026-05-31
+
+### Fixed
+- **Workspace duplication / art swap** — cards no longer flicker or show wrong art when adding a card or toggling Faces Only ↔ Faces+Backs; the canvas now renders all cards atomically (batch) instead of progressively one by one
+- **Double watermark stamp** — removed the redundant in-memory `apply_to_image()` pass in the workspace worker; `apply()` on disk is always called before `load_cards()` so a single clean stamp is applied
+- **Watermark "22026" artefact** — background rectangle now always extends from `erase_x` to the right edge, fully erasing any previously-written stamp before drawing the new one
+- **Wizards copyright still visible** — tight `getbbox` box was insufficient for cards with slightly varying copyright y-positions; restored full-height strip `[erase_x, y_top, w, h]` as the only reliable approach
+
+### Improved
+- **Proxy watermark strip** — strip height reduced by 7 px (`strip_h - 7`) and text baseline lowered 1 px, less intrusive on card art
+- **Folder import — artwork conflict picker** — when multiple images share the same normalised card name, a new `ArtworkPickerDialog` lets you choose which artwork to keep per card
+- **Deck sidebar — artwork subtitle** — rows with duplicate card names now show the source filename as a small subtitle so you can distinguish multiple artworks for the same card
+- **TXT batch import — watermark progress** — a dedicated `watermark_callback` parameter now reports stamping progress in the status bar during large imports
+- **Folder import — consistent watermark display** — when upscaling, the source (native) image is also stamped so the workspace always shows the watermark regardless of which resolution is loaded
+
+---
+
 ## [v1.1.0] — 2026-05-31
 
 ### Added
