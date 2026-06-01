@@ -28,7 +28,7 @@ _WINDOWS_FONT_CANDIDATES = [
 
 _STRIP_RATIO  = 0.08    # strip height as fraction of card height
 _STAMP_X      = 0.193   # stamp start: ~4px left of previous 0.206
-_COPYRIGHT_X  = 0.53    # copyright fill start (right zone)
+_COPYRIGHT_X  = 0.57    # copyright fill start (right zone)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 _PRE_CLEAR_X  = 0.17    # left boundary of pre-clear zone
 
@@ -122,14 +122,24 @@ class ProxyWatermark:
         stamp_x = int(w * _STAMP_X)
         cx      = int(w * _COPYRIGHT_X)
 
-        # ── 1. Copyright fill (right zone only — never touches CN or artist) ─
-        bg_right = _sample_bg(img, max(0, cx - 50), y_top, cx, h)
-        draw.rectangle([cx, y_top, w, h], fill=bg_right)
+        # Sample bg_right before fill for "Not for sale" text colour reference
+        bg_right = _sample_bg(img, int(w * 0.70), y_top, int(w * 0.90), h)
 
-        # ── 2. "OtterForge Proxy" — 1px bg box sampled locally, then text ────
+        # ── 1. Copyright fill — per-column median, no hard edge / no overflow ─
+        # For each column, take the median brightness pixel in the strip as the
+        # background colour.  Text pixels (minority, high contrast) fall outside
+        # the median and get overwritten; the rest of the strip looks unchanged.
+        for x in range(cx, w):
+            col = [img.getpixel((x, y)) for y in range(y_top, h)]
+            col.sort(key=lambda p: p[0] + p[1] + p[2])
+            bg_col = col[len(col) // 2]
+            draw.line([(x, y_top), (x, h - 1)], fill=bg_col)
+
+        # ── 2. "OtterForge Proxy" — tight bg box, colour from left footer edge ─
+        # Sample from the far-left CN zone (0–12 %) which is untouched and holds
+        # the true card-frame colour.
         text_x   = stamp_x
-        bg_stamp = _sample_bg(img, max(0, text_x - 2), y_top,
-                               min(w, text_x + text_w + 2), h)
+        bg_stamp = _sample_bg(img, 0, y_top, int(w * 0.12), h)
         draw.rectangle(
             [text_x,              text_y - 1,
              text_x + text_w + 1, text_y + text_h_px + 1],
