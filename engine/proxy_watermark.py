@@ -40,9 +40,6 @@ _PRE_CLEAR_X  = 0.17    # left boundary of pre-clear zone
 # Above → light border (white, tan, extended-art, borderless…).
 _DARK_BORDER_THRESHOLD = 40
 
-# Alpha for semi-transparent label boxes on light/adaptive cards (0–255).
-_OVERLAY_ALPHA = 180
-
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     for path in _WINDOWS_FONT_CANDIDATES:
@@ -92,18 +89,6 @@ def _is_dark_border(img: Image.Image) -> bool:
     brightness = (sample[0] + sample[1] + sample[2]) // 3
     return brightness < _DARK_BORDER_THRESHOLD
 
-
-def _draw_semi_transparent_box(
-    img: Image.Image,
-    x0: int, y0: int, x1: int, y1: int,
-    alpha: int = _OVERLAY_ALPHA,
-) -> None:
-    """Composite a semi-transparent black rectangle onto img (RGB in-place)."""
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(overlay).rectangle([x0, y0, x1, y1], fill=(0, 0, 0, alpha))
-    base = img.convert("RGBA")
-    combined = Image.alpha_composite(base, overlay)
-    img.paste(combined.convert("RGB"))
 
 
 class ProxyWatermark:
@@ -200,26 +185,28 @@ class ProxyWatermark:
 
     def _draw_adaptive(self, img, w, h, y_top, stamp, nfs,
                        stamp_x, nfs_x, text_y, text_w, text_h_px, nfs_w, font):
-        """Light-border / extended-art path: semi-transparent overlays only."""
+        """Light-border / extended-art path: opaque box matching border colour."""
+        # Sample the actual border colour (bottom-left corner, untouched)
+        border_color = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
+        text_col = _text_color(border_color)
         pad = 2
+        draw = ImageDraw.Draw(img)
 
-        # ── "OtterForge Proxy" semi-transparent box ───────────────────────────
-        _draw_semi_transparent_box(
-            img,
-            stamp_x - pad,          text_y - pad,
-            stamp_x + text_w + pad, text_y + text_h_px + pad,
+        # ── "OtterForge Proxy" box ────────────────────────────────────────────
+        draw.rectangle(
+            [stamp_x - pad,          text_y - pad,
+             stamp_x + text_w + pad, text_y + text_h_px + pad],
+            fill=border_color,
         )
-        ImageDraw.Draw(img).text((stamp_x, text_y), stamp,
-                                 fill=(210, 206, 198), font=font)
+        draw.text((stamp_x, text_y), stamp, fill=text_col, font=font)
 
-        # ── "Not for sale" semi-transparent box ──────────────────────────────
-        _draw_semi_transparent_box(
-            img,
-            nfs_x - pad,            text_y - pad,
-            nfs_x + nfs_w + pad,    text_y + text_h_px + pad,
+        # ── "Not for sale" box ────────────────────────────────────────────────
+        draw.rectangle(
+            [nfs_x - pad,            text_y - pad,
+             nfs_x + nfs_w + pad,    text_y + text_h_px + pad],
+            fill=border_color,
         )
-        ImageDraw.Draw(img).text((nfs_x, text_y), nfs,
-                                 fill=(210, 206, 198), font=font)
+        draw.text((nfs_x, text_y), nfs, fill=text_col, font=font)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"

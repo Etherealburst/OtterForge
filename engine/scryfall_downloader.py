@@ -25,16 +25,19 @@ class ScryfallDownloader:
     Supporte la recherche fuzzy par nom et la recherche exacte par set/collector.
     """
 
-    def get_card(self, name: str) -> dict | None:
+    def get_card(self, name: str, set_code: str | None = None) -> dict | None:
         """
-        Recherche une carte par nom (fuzzy).
+        Recherche une carte par nom (fuzzy), avec set optionnel.
         Retourne le JSON Scryfall, ou None si introuvable.
         Le résultat est mis en cache par set+CN pour accélérer les appels futurs exacts.
         """
+        params: dict = {"fuzzy": name}
+        if set_code:
+            params["set"] = set_code.lower()
         try:
             response = requests.get(
                 SCRYFALL_API_NAMED,
-                params={"fuzzy": name},
+                params=params,
                 timeout=10,
             )
             response.raise_for_status()

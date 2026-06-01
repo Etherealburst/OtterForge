@@ -360,7 +360,8 @@ class OtterForgeApp(_AppBase):
                     print(f"[App] set/cn introuvable, essai par nom : {parsed['name']!r}")
                     card_json = self.scryfall.get_card(parsed["name"])
             elif parsed.get("name"):
-                card_json = self.scryfall.get_card(parsed["name"])
+                # Pass set_code so "Name s:SET" fetches the right printing
+                card_json = self.scryfall.get_card(parsed["name"], set_code=parsed.get("set"))
 
             if not card_json:
                 self.after(0, self._on_search_error, f"Card not found: {label!r}")
