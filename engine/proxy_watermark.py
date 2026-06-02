@@ -25,10 +25,11 @@ _WINDOWS_FONT_CANDIDATES = [
     r"C:\Windows\Fonts\verdana.ttf",
 ]
 
-_STRIP_RATIO  = 0.08    # strip height as fraction of card height
-_STAMP_X      = 0.193   # "OtterForge Proxy" x-start (left zone, after CN number)
-_COPYRIGHT_X  = 0.57    # copyright fill start (right zone, clears set symbol)
-_COPYRIGHT_Y  = 0.065   # text baseline from bottom
+_STRIP_RATIO       = 0.08   # strip height as fraction of card height
+_STAMP_X           = 0.193  # "OtterForge Proxy" x-start (left zone, after CN number)
+_COPYRIGHT_X       = 0.57   # copyright fill start (right zone, clears set symbol)
+_COPYRIGHT_Y       = 0.065  # text baseline from bottom
+_DARK_BG_THRESHOLD = 40     # border brightness below this → dark card → apply fill
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -110,15 +111,20 @@ class ProxyWatermark:
 
         draw = ImageDraw.Draw(img)
 
-        # ── 1. Copyright fill — per-column median, adapts to any card colour ──
-        # Samples each column's median brightness pixel in the strip → WotC text
-        # (high-contrast minority) falls outside the median and gets overwritten;
-        # plain background pixels are preserved, so there is no visible hard edge.
-        for x in range(cx, w):
-            col = [img.getpixel((x, y)) for y in range(y_top, h)]
-            col.sort(key=lambda p: p[0] + p[1] + p[2])
-            bg_col = col[len(col) // 2]
-            draw.line([(x, y_top), (x, h - 1)], fill=bg_col)
+        # Detect border colour from bottom-left corner (untouched, original frame)
+        border_sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
+        dark_card = (border_sample[0] + border_sample[1] + border_sample[2]) // 3 < _DARK_BG_THRESHOLD
+
+        # ── 1. Copyright fill (dark cards only) ───────────────────────────────
+        # Per-column median hides WotC text on dark-bordered cards.
+        # Skipped on white/tan/extended-art cards — the fill would paint a
+        # visible white/colour rectangle over the coloured card frame.
+        if dark_card:
+            for x in range(cx, w):
+                col = [img.getpixel((x, y)) for y in range(y_top, h)]
+                col.sort(key=lambda p: p[0] + p[1] + p[2])
+                bg_col = col[len(col) // 2]
+                draw.line([(x, y_top), (x, h - 1)], fill=bg_col)
 
         # ── 2. "OtterForge Proxy" — outlined text, no background box ─────────
         _outlined_text(draw, (stamp_x, text_y), stamp, font, epaisseur=2)

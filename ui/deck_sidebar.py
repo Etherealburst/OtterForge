@@ -347,7 +347,7 @@ class DeckSidebar(ctk.CTkFrame):
         name_container.pack(side="left", padx=(8, 4), pady=pad_y, expand=True, fill="x")
 
         name_lbl = tk.Label(name_container, text=name_text, anchor="w", bg=RB, fg="#e8e4f0",
-                            font=("Segoe UI", 20), cursor="hand2")
+                            font=("Segoe UI", 11), cursor="hand2")
         name_lbl.pack(side="top", anchor="w")
         name_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
         if truncated:
@@ -360,36 +360,36 @@ class DeckSidebar(ctk.CTkFrame):
             sub_lbl.bind("<Button-1>", lambda e, c=card: self._inspect(c))
 
         # Boutons — Canvas 2× plus grands (40×44px par bouton, police 24pt)
-        c = tk.Canvas(row, bg=RB, width=CTRL_W, height=80,
+        c = tk.Canvas(row, bg=RB, width=CTRL_W, height=44,
                       highlightthickness=0, cursor="hand2")
         c.pack(side="right", padx=(0, 6))
 
-        CY = 40
+        CY = 22
         DEL_X = CTRL_W - 14
-        PLS_X = DEL_X - 42
-        CNT_X = PLS_X - 42
-        MIN_X = CNT_X - 44
+        PLS_X = DEL_X - 36
+        CNT_X = PLS_X - 36
+        MIN_X = CNT_X - 36
 
         for bx in (MIN_X, PLS_X, DEL_X):
-            c.create_rectangle(bx - 20, CY - 22, bx + 20, CY + 22,
+            c.create_rectangle(bx - 14, CY - 11, bx + 14, CY + 11,
                                fill="#28252e", outline="")
 
         c.create_text(MIN_X, CY, text="−", anchor="center",
-                      fill="#c4bfb8", font=("Segoe UI", 24))
+                      fill="#c4bfb8", font=("Segoe UI", 13))
         c.create_text(CNT_X, CY, text=f"×{card.count}", anchor="center",
-                      fill="#c04828", font=("Segoe UI", 22, "bold"))
+                      fill="#c04828", font=("Segoe UI", 12, "bold"))
         c.create_text(PLS_X, CY, text="+", anchor="center",
-                      fill="#c4bfb8", font=("Segoe UI", 24))
+                      fill="#c4bfb8", font=("Segoe UI", 13))
         c.create_text(DEL_X, CY, text="×", anchor="center",
-                      fill="#a06070", font=("Segoe UI", 22))
+                      fill="#a06070", font=("Segoe UI", 12))
 
         def _click(event, card=card, min_x=MIN_X, plus_x=PLS_X, del_x=DEL_X):
             x = event.x
-            if x >= del_x - 20:
+            if x >= del_x - 14:
                 self._remove_card(card)
-            elif x >= plus_x - 20:
+            elif x >= plus_x - 14:
                 self._change_count(card, 1)
-            elif x >= min_x - 20:
+            elif x >= min_x - 14:
                 self._change_count(card, -1)
             else:
                 self._inspect(card)
