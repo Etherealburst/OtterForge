@@ -192,8 +192,8 @@ class ProxyWatermark:
         if apply_fill:
             # Left zone: covers OtterForge Proxy text + stale artifacts.
             # Ends at ~45% (text can extend to ~45%, set symbol starts at ~62%).
-            # Starts at y_top to catch artifacts at any vertical offset.
-            _fill_zone(draw, img, stamp_x, int(w * 0.45), y_top, fill_y1, y_top)
+            # Full strip height (y_top→h-1) to erase any old artifact at any offset.
+            _fill_zone(draw, img, stamp_x, int(w * 0.45), y_top, h - 1, y_top)
             # Right zone: WotC copyright (70% to edge), text height only.
             _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
 
