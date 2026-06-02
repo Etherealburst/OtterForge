@@ -180,7 +180,7 @@ class ProxyWatermark:
         if apply_fill:
             nfs_x = w - max(4, w // 60) - nfs_w - 40
         else:
-            nfs_x = max(w // 2, w - max(4, w // 60) - nfs_w - 140)
+            nfs_x = max(w // 2, w - max(4, w // 60) - nfs_w - 170)
         nfs_y = text_y
 
         # Fill band: text height + 2px padding, stays within the strip
@@ -190,7 +190,9 @@ class ProxyWatermark:
         draw = ImageDraw.Draw(img)
 
         if apply_fill:
-            # Copyright zone only — hides WotC text without touching set symbol
+            # Left zone: cover text left of the set symbol (stops at ~55%)
+            _fill_zone(draw, img, stamp_x, int(w * 0.55), fill_y0, fill_y1, y_top)
+            # Right zone: cover WotC copyright text (starts at 70%, after set symbol)
             _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
 
         # ── "OtterForge Proxy" — white outlined text (epaisseur 1) ───────────
