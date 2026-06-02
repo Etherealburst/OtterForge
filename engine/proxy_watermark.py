@@ -152,11 +152,11 @@ class ProxyWatermark:
         if not stamp:
             return
 
-        sz   = max(10, int(h * 0.020))
+        sz   = max(9, int(h * 0.020) - 1)    # font size -1
         font = _load_font(sz)
 
         copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
-        text_y = max(y_top + 1, copyright_y) + 2
+        text_y = max(y_top + 1, copyright_y) - 3   # moved up vs previous +2
 
         # Measure text height for the targeted fill
         try:
@@ -171,10 +171,17 @@ class ProxyWatermark:
         except Exception:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
-        stamp_x = int(w * _STAMP_X)
-        cx      = int(w * _COPYRIGHT_X)
-        nfs_x   = w - max(4, w // 60) - nfs_w - 40
-        nfs_y   = text_y
+        stamp_x   = int(w * _STAMP_X)
+        cx        = int(w * _COPYRIGHT_X)
+        apply_fill = _should_apply_fill(card_json, img)
+
+        # NFS x: standard dark cards keep right-aligned position;
+        # extended/borderless shift 3× further left (floor at card centre).
+        if apply_fill:
+            nfs_x = w - max(4, w // 60) - nfs_w - 40
+        else:
+            nfs_x = max(w // 2, w - max(4, w // 60) - nfs_w - 120)
+        nfs_y = text_y
 
         # Fill band: text height + 2px padding, stays within the strip
         fill_y0 = max(y_top, text_y - 2)
@@ -182,16 +189,16 @@ class ProxyWatermark:
 
         draw = ImageDraw.Draw(img)
 
-        if _should_apply_fill(card_json, img):
+        if apply_fill:
             # ── Stamp zone fill — hides artist name ──────────────────────────
             _fill_zone(draw, img, stamp_x, cx, fill_y0, fill_y1, y_top)
             # ── Copyright zone fill — hides WotC text ────────────────────────
             _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
 
-        # ── "OtterForge Proxy" — white outlined text ─────────────────────────
-        _outlined_text(draw, (stamp_x, text_y), stamp, font, epaisseur=2)
+        # ── "OtterForge Proxy" — white outlined text (epaisseur 1) ───────────
+        _outlined_text(draw, (stamp_x, text_y), stamp, font, epaisseur=1)
 
-        # ── "Not for sale" — white outlined text, right-aligned ──────────────
+        # ── "Not for sale" — white outlined text (epaisseur 1) ───────────────
         _outlined_text(draw, (nfs_x, nfs_y), nfs, font, epaisseur=1)
 
     def _stamp(self, card_json: dict | None) -> str:
