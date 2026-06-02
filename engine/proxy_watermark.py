@@ -30,7 +30,7 @@ _WINDOWS_FONT_CANDIDATES = [
 
 _STRIP_RATIO  = 0.08    # strip height as fraction of card height
 _STAMP_X      = 0.193   # "OtterForge Proxy" x-start (after CN number)
-_COPYRIGHT_X  = 0.60    # right fill zone start (clears WotC copyright)
+_COPYRIGHT_X  = 0.59    # right fill zone start (clears WotC copyright)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 
 
