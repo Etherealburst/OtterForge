@@ -4,12 +4,15 @@ engine/proxy_watermark.py
 Two-zone proxy watermark for MTG cards.
 
 Collector bar layout (left → right):
-  [CN number]  [set symbol ~center]  [™ & © Wizards of the Coast]
+  [CN number]  [set symbol ~center]  [artist]  [™ & © Wizards of the Coast]
 
-Drawing order (all card types):
-  1. Copyright fill (57 %→right edge) — per-column median, hides WotC text.
-  2. "OtterForge Proxy" — outlined text at _STAMP_X, no opaque box.
-  3. "Not for sale"     — outlined text, right-aligned, on the artist/set row.
+Drawing order:
+  For standard dark-bordered cards:
+    1. Targeted fill (text-height only) on stamp zone + copyright zone
+       → hides artist name and WotC text with minimal visual footprint.
+  For all card types:
+    2. "OtterForge Proxy" — white outlined text at _STAMP_X.
+    3. "Not for sale"     — white outlined text, right-aligned, same row.
 """
 
 import os
@@ -26,7 +29,8 @@ _WINDOWS_FONT_CANDIDATES = [
 ]
 
 _STRIP_RATIO  = 0.08    # strip height as fraction of card height
-_STAMP_X      = 0.193   # "OtterForge Proxy" x-start (left zone, after CN number)
+_STAMP_X      = 0.193   # "OtterForge Proxy" x-start (after CN number)
+_COPYRIGHT_X  = 0.57    # right fill zone start (clears WotC copyright)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 
 
@@ -65,7 +69,7 @@ def _outlined_text(
     pos: tuple,
     text: str,
     font,
-    fill: tuple = (220, 216, 208),
+    fill: tuple = (255, 255, 255),
     outline: tuple = (0, 0, 0),
     epaisseur: int = 2,
 ) -> None:
@@ -76,6 +80,43 @@ def _outlined_text(
             if dx or dy:
                 draw.text((x + dx, y + dy), text, fill=outline, font=font)
     draw.text(pos, text, fill=fill, font=font)
+
+
+def _should_apply_fill(card_json: dict | None, img: Image.Image) -> bool:
+    """Return True for standard dark-bordered cards where a fill can safely
+    hide the original collector-bar text without creating visible artifacts.
+
+    Skips fill for: borderless, white-bordered, full-art, extended-art,
+    showcase, and any other non-standard frame treatment.
+    """
+    if card_json:
+        bc = card_json.get("border_color", "")
+        if bc in ("white", "borderless", "silver"):
+            return False
+        fe = card_json.get("frame_effects") or []
+        if any(e in fe for e in ("extendedart", "showcase", "inverted", "fullart")):
+            return False
+        if card_json.get("full_art", False):
+            return False
+        return bc in ("black", "gold")
+    # Fallback: pixel-sample bottom-left corner (card border zone)
+    w, h = img.size
+    sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
+    return (sample[0] + sample[1] + sample[2]) // 3 < 40
+
+
+def _fill_zone(draw: ImageDraw.ImageDraw, img: Image.Image,
+               x0: int, x1: int, y0: int, y1: int, y_sample_top: int) -> None:
+    """Fill columns x0..x1 between y0..y1 with per-column median brightness.
+
+    Samples from y_sample_top to card bottom so that majority background
+    pixels dominate the median and high-contrast text pixels are erased.
+    """
+    h = img.size[1]
+    for x in range(x0, x1):
+        col = [img.getpixel((x, y)) for y in range(y_sample_top, h)]
+        col.sort(key=lambda p: p[0] + p[1] + p[2])
+        draw.line([(x, y0), (x, y1)], fill=col[len(col) // 2])
 
 
 class ProxyWatermark:
@@ -117,6 +158,13 @@ class ProxyWatermark:
         copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
         text_y = max(y_top + 1, copyright_y) + 2
 
+        # Measure text height for the targeted fill
+        try:
+            bb = font.getbbox(stamp)
+            text_h_px = bb[3] - bb[1]
+        except Exception:
+            text_h_px = sz
+
         nfs = "Not for sale"
         try:
             nfs_w = font.getbbox(nfs)[2] - font.getbbox(nfs)[0]
@@ -124,18 +172,27 @@ class ProxyWatermark:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
         stamp_x = int(w * _STAMP_X)
+        cx      = int(w * _COPYRIGHT_X)
         nfs_x   = w - max(4, w // 60) - nfs_w - 40
         nfs_y   = text_y
 
+        # Fill band: text height + 2px padding, stays within the strip
+        fill_y0 = max(y_top, text_y - 2)
+        fill_y1 = min(h - 1, text_y + text_h_px + 2)
+
         draw = ImageDraw.Draw(img)
 
-        # ── 1. "OtterForge Proxy" — white outlined text, transparent background
-        _outlined_text(draw, (stamp_x, text_y), stamp, font,
-                       fill=(255, 255, 255), epaisseur=2)
+        if _should_apply_fill(card_json, img):
+            # ── Stamp zone fill — hides artist name ──────────────────────────
+            _fill_zone(draw, img, stamp_x, cx, fill_y0, fill_y1, y_top)
+            # ── Copyright zone fill — hides WotC text ────────────────────────
+            _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
 
-        # ── 2. "Not for sale" — white outlined text, same row, right-aligned ──
-        _outlined_text(draw, (nfs_x, nfs_y), nfs, font,
-                       fill=(255, 255, 255), epaisseur=1)
+        # ── "OtterForge Proxy" — white outlined text ─────────────────────────
+        _outlined_text(draw, (stamp_x, text_y), stamp, font, epaisseur=2)
+
+        # ── "Not for sale" — white outlined text, right-aligned ──────────────
+        _outlined_text(draw, (nfs_x, nfs_y), nfs, font, epaisseur=1)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"
