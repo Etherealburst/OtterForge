@@ -30,7 +30,7 @@ _WINDOWS_FONT_CANDIDATES = [
 
 _STRIP_RATIO  = 0.08    # strip height as fraction of card height
 _STAMP_X      = 0.193   # "OtterForge Proxy" x-start (after CN number)
-_COPYRIGHT_X  = 0.57    # right fill zone start (clears WotC copyright)
+_COPYRIGHT_X  = 0.62    # right fill zone start (clears WotC copyright, avoids set symbol)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 
 
@@ -180,7 +180,7 @@ class ProxyWatermark:
         if apply_fill:
             nfs_x = w - max(4, w // 60) - nfs_w - 40
         else:
-            nfs_x = max(w // 2, w - max(4, w // 60) - nfs_w - 120)
+            nfs_x = max(w // 2, w - max(4, w // 60) - nfs_w - 360)
         nfs_y = text_y
 
         # Fill band: text height + 2px padding, stays within the strip
