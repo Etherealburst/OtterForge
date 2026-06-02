@@ -41,6 +41,27 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+def _sample_bg(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> tuple:
+    """Return the background colour (darkest 50 % of sampled pixels)."""
+    iw, ih = img.size
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(iw, x1), min(ih, y1)
+    pixels = []
+    sx = max(1, (x1 - x0) // 16)
+    sy = max(1, (y1 - y0) // 5)
+    for y in range(y0, y1, sy):
+        for x in range(x0, x1, sx):
+            pixels.append(img.getpixel((x, y)))
+    if not pixels:
+        return (14, 11, 19)
+    pixels.sort(key=lambda p: p[0] + p[1] + p[2])
+    dark = pixels[: max(1, len(pixels) // 2)]
+    r = sum(p[0] for p in dark) // len(dark)
+    g = sum(p[1] for p in dark) // len(dark)
+    b = sum(p[2] for p in dark) // len(dark)
+    return (r, g, b)
+
+
 def _outlined_text(
     draw: ImageDraw.ImageDraw,
     pos: tuple,
