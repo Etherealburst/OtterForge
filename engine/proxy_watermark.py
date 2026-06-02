@@ -129,25 +129,27 @@ class ProxyWatermark:
         except Exception:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
-        stamp_x = int(w * _STAMP_X)
-        nfs_x   = w - max(4, w // 60) - nfs_w - 40
-        nfs_y   = text_y + sz + 2   # second collector row — set code + artist line
+        stamp_x    = int(w * _STAMP_X)
+        nfs_x      = w - max(4, w // 60) - nfs_w - 40
+        nfs_y      = text_y          # same row as OtterForge Proxy
+        pre_clear_y = y_top + 2     # 2px lower to avoid clipping card art
 
         draw = ImageDraw.Draw(img)
 
         # ── 0. Pre-clear stamp zone ───────────────────────────────────────────
-        # Erase any old cached watermark (opaque box from a previous code version)
-        # by replacing each column with its median brightness pixel.
+        # Erase any old cached watermark (opaque box from a previous code version).
         for x in range(stamp_x, min(w, stamp_x + stamp_w + 4)):
-            col = [img.getpixel((x, y)) for y in range(y_top, h)]
+            col = [img.getpixel((x, y)) for y in range(pre_clear_y, h)]
             col.sort(key=lambda p: p[0] + p[1] + p[2])
-            draw.line([(x, y_top), (x, h - 1)], fill=col[len(col) // 2])
+            draw.line([(x, pre_clear_y), (x, h - 1)], fill=col[len(col) // 2])
 
-        # ── 1. "OtterForge Proxy" — outlined text, transparent background ─────
-        _outlined_text(draw, (stamp_x, text_y), stamp, font, epaisseur=2)
+        # ── 1. "OtterForge Proxy" — white outlined text, transparent background
+        _outlined_text(draw, (stamp_x, text_y), stamp, font,
+                       fill=(255, 255, 255), epaisseur=2)
 
-        # ── 2. "Not for sale" — outlined text, transparent background ─────────
-        _outlined_text(draw, (nfs_x, nfs_y), nfs, font, epaisseur=1)
+        # ── 2. "Not for sale" — white outlined text, same row, right-aligned ──
+        _outlined_text(draw, (nfs_x, nfs_y), nfs, font,
+                       fill=(255, 255, 255), epaisseur=1)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"
