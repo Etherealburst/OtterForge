@@ -132,14 +132,19 @@ class ProxyWatermark:
 
         draw = ImageDraw.Draw(img)
 
-        # Detect border colour from bottom-left corner (untouched, original frame)
-        border_sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
-        dark_card = (border_sample[0] + border_sample[1] + border_sample[2]) // 3 < _DARK_BG_THRESHOLD
+        # Prefer Scryfall's border_color field; fall back to pixel sampling.
+        # "black" / "gold" → dark frame → apply copyright fill.
+        # "white" / "borderless" / "silver" → light/no frame → skip fill.
+        border_color_field = (card_json or {}).get("border_color", "")
+        if border_color_field in ("black", "gold"):
+            dark_card = True
+        elif border_color_field in ("white", "borderless", "silver"):
+            dark_card = False
+        else:
+            border_sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
+            dark_card = (border_sample[0] + border_sample[1] + border_sample[2]) // 3 < _DARK_BG_THRESHOLD
 
         # ── 1. Copyright fill (dark cards only) ───────────────────────────────
-        # Per-column median hides WotC text on dark-bordered cards.
-        # Skipped on white/tan/extended-art cards — the fill would paint a
-        # visible white/colour rectangle over the coloured card frame.
         if dark_card:
             for x in range(cx, w):
                 col = [img.getpixel((x, y)) for y in range(y_top, h)]
