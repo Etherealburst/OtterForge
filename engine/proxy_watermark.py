@@ -30,7 +30,7 @@ _WINDOWS_FONT_CANDIDATES = [
 
 _STRIP_RATIO  = 0.08    # strip height as fraction of card height
 _STAMP_X      = 0.193   # "OtterForge Proxy" x-start (after CN number)
-_COPYRIGHT_X  = 0.61    # right fill zone start (clears WotC copyright)
+_COPYRIGHT_X  = 0.60    # right fill zone start (clears WotC copyright)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 
 
@@ -190,10 +190,10 @@ class ProxyWatermark:
         draw = ImageDraw.Draw(img)
 
         if apply_fill:
-            # Left zone: only under OtterForge Proxy text — erases stale artifacts.
-            # Ends at ~38% (before set symbol at ~40-50%).
-            # Starts at y_top (full strip height) to catch artifacts at any vertical offset.
-            _fill_zone(draw, img, stamp_x, int(w * 0.38), y_top, fill_y1, y_top)
+            # Left zone: covers OtterForge Proxy text + stale artifacts.
+            # Ends at ~45% (text can extend to ~45%, set symbol starts at ~62%).
+            # Starts at y_top to catch artifacts at any vertical offset.
+            _fill_zone(draw, img, stamp_x, int(w * 0.45), y_top, fill_y1, y_top)
             # Right zone: WotC copyright (70% to edge), text height only.
             _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
 
