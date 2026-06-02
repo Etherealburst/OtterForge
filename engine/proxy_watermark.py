@@ -115,13 +115,7 @@ class ProxyWatermark:
         font = _load_font(sz)
 
         copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
-        text_y = max(y_top + 1, copyright_y) - 5
-
-        try:
-            stamp_bb = font.getbbox(stamp)
-            stamp_w  = stamp_bb[2] - stamp_bb[0]
-        except Exception:
-            stamp_w  = len(stamp) * max(4, sz * 6 // 10)
+        text_y = max(y_top + 1, copyright_y) + 2
 
         nfs = "Not for sale"
         try:
@@ -129,19 +123,11 @@ class ProxyWatermark:
         except Exception:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
-        stamp_x    = int(w * _STAMP_X)
-        nfs_x      = w - max(4, w // 60) - nfs_w - 40
-        nfs_y      = text_y          # same row as OtterForge Proxy
-        pre_clear_y = y_top + 2     # 2px lower to avoid clipping card art
+        stamp_x = int(w * _STAMP_X)
+        nfs_x   = w - max(4, w // 60) - nfs_w - 40
+        nfs_y   = text_y
 
         draw = ImageDraw.Draw(img)
-
-        # ── 0. Pre-clear stamp zone ───────────────────────────────────────────
-        # Erase any old cached watermark (opaque box from a previous code version).
-        for x in range(stamp_x, min(w, stamp_x + stamp_w + 4)):
-            col = [img.getpixel((x, y)) for y in range(pre_clear_y, h)]
-            col.sort(key=lambda p: p[0] + p[1] + p[2])
-            draw.line([(x, pre_clear_y), (x, h - 1)], fill=col[len(col) // 2])
 
         # ── 1. "OtterForge Proxy" — white outlined text, transparent background
         _outlined_text(draw, (stamp_x, text_y), stamp, font,
