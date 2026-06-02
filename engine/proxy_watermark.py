@@ -25,11 +25,9 @@ _WINDOWS_FONT_CANDIDATES = [
     r"C:\Windows\Fonts\verdana.ttf",
 ]
 
-_STRIP_RATIO       = 0.08   # strip height as fraction of card height
-_STAMP_X           = 0.193  # "OtterForge Proxy" x-start (left zone, after CN number)
-_COPYRIGHT_X       = 0.57   # copyright fill start (right zone, clears set symbol)
-_COPYRIGHT_Y       = 0.065  # text baseline from bottom
-_DARK_BG_THRESHOLD = 40     # border brightness below this → dark card → apply fill
+_STRIP_RATIO  = 0.08    # strip height as fraction of card height
+_STAMP_X      = 0.193   # "OtterForge Proxy" x-start (left zone, after CN number)
+_COPYRIGHT_Y  = 0.065   # text baseline from bottom
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -132,7 +130,6 @@ class ProxyWatermark:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
         stamp_x = int(w * _STAMP_X)
-        cx      = int(w * _COPYRIGHT_X)
         nfs_x   = w - max(4, w // 60) - nfs_w - 40
         nfs_y   = text_y + sz + 2   # second collector row — set code + artist line
 
@@ -140,37 +137,16 @@ class ProxyWatermark:
 
         # ── 0. Pre-clear stamp zone ───────────────────────────────────────────
         # Erase any old cached watermark (opaque box from a previous code version)
-        # by replacing each column with its median brightness pixel — same technique
-        # as the copyright fill so old text pixels (high-contrast minority) vanish.
+        # by replacing each column with its median brightness pixel.
         for x in range(stamp_x, min(w, stamp_x + stamp_w + 4)):
             col = [img.getpixel((x, y)) for y in range(y_top, h)]
             col.sort(key=lambda p: p[0] + p[1] + p[2])
             draw.line([(x, y_top), (x, h - 1)], fill=col[len(col) // 2])
 
-        # Prefer Scryfall's border_color field; fall back to pixel sampling.
-        # "black" / "gold" → dark frame → apply copyright fill.
-        # "white" / "borderless" / "silver" → light/no frame → skip fill.
-        border_color_field = (card_json or {}).get("border_color", "")
-        if border_color_field in ("black", "gold"):
-            dark_card = True
-        elif border_color_field in ("white", "borderless", "silver"):
-            dark_card = False
-        else:
-            border_sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
-            dark_card = (border_sample[0] + border_sample[1] + border_sample[2]) // 3 < _DARK_BG_THRESHOLD
-
-        # ── 1. Copyright fill (dark cards only) ───────────────────────────────
-        if dark_card:
-            for x in range(cx, w):
-                col = [img.getpixel((x, y)) for y in range(y_top, h)]
-                col.sort(key=lambda p: p[0] + p[1] + p[2])
-                bg_col = col[len(col) // 2]
-                draw.line([(x, y_top), (x, h - 1)], fill=bg_col)
-
-        # ── 2. "OtterForge Proxy" — outlined text, no background box ─────────
+        # ── 1. "OtterForge Proxy" — outlined text, transparent background ─────
         _outlined_text(draw, (stamp_x, text_y), stamp, font, epaisseur=2)
 
-        # ── 3. "Not for sale" — outlined text on the artist/set row ──────────
+        # ── 2. "Not for sale" — outlined text, transparent background ─────────
         _outlined_text(draw, (nfs_x, nfs_y), nfs, font, epaisseur=1)
 
     def _stamp(self, card_json: dict | None) -> str:
