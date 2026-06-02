@@ -180,7 +180,7 @@ class ProxyWatermark:
         if apply_fill:
             nfs_x = w - max(4, w // 60) - nfs_w - 40
         else:
-            nfs_x = max(w // 2, w - max(4, w // 60) - nfs_w - 360)
+            nfs_x = max(int(w * 0.55), w - max(4, w // 60) - nfs_w - 60)
         nfs_y = text_y
 
         # Fill band: text height + 2px padding, stays within the strip
