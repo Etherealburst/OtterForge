@@ -119,6 +119,12 @@ class ProxyWatermark:
         copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
         text_y = max(y_top + 1, copyright_y) - 5
 
+        try:
+            stamp_bb = font.getbbox(stamp)
+            stamp_w  = stamp_bb[2] - stamp_bb[0]
+        except Exception:
+            stamp_w  = len(stamp) * max(4, sz * 6 // 10)
+
         nfs = "Not for sale"
         try:
             nfs_w = font.getbbox(nfs)[2] - font.getbbox(nfs)[0]
@@ -131,6 +137,15 @@ class ProxyWatermark:
         nfs_y   = text_y + sz + 2   # second collector row — set code + artist line
 
         draw = ImageDraw.Draw(img)
+
+        # ── 0. Pre-clear stamp zone ───────────────────────────────────────────
+        # Erase any old cached watermark (opaque box from a previous code version)
+        # by replacing each column with its median brightness pixel — same technique
+        # as the copyright fill so old text pixels (high-contrast minority) vanish.
+        for x in range(stamp_x, min(w, stamp_x + stamp_w + 4)):
+            col = [img.getpixel((x, y)) for y in range(y_top, h)]
+            col.sort(key=lambda p: p[0] + p[1] + p[2])
+            draw.line([(x, y_top), (x, h - 1)], fill=col[len(col) // 2])
 
         # Prefer Scryfall's border_color field; fall back to pixel sampling.
         # "black" / "gold" → dark frame → apply copyright fill.
