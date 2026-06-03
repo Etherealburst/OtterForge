@@ -46,7 +46,7 @@ from engine.upscaler import ImageUpscaler
 from engine.mpc_uploader import MPCUploader
 from engine.proxy_watermark import ProxyWatermark
 
-from config import CACHE_DIR, OUTPUT_DIR, DECKS_DIR, BASE_DIR
+from config import CACHE_DIR, OUTPUT_DIR, DECKS_DIR, BASE_DIR, OTTERFORGE_DEFAULT_BACK
 
 
 def _asset_path(name: str) -> str:
@@ -137,9 +137,11 @@ class OtterForgeApp(_AppBase):
         _MAX_UNDO = 20
         self._max_undo = _MAX_UNDO
 
-        # Image d'endos — restaurée depuis le deck actif s'il en a une
+        # Image d'endos — restaurée depuis le deck actif, sinon OtterForge default
         _active = self.deck_manager.active_deck()
         self.deck_back_image: str | None = _active.back_image if _active else None
+        if not self.deck_back_image and os.path.exists(OTTERFORGE_DEFAULT_BACK):
+            self.deck_back_image = OTTERFORGE_DEFAULT_BACK
 
         # ------------------------------------------------------------------
         # UI — TOOLBAR (haut)
@@ -360,7 +362,8 @@ class OtterForgeApp(_AppBase):
                     print(f"[App] set/cn introuvable, essai par nom : {parsed['name']!r}")
                     card_json = self.scryfall.get_card(parsed["name"])
             elif parsed.get("name"):
-                card_json = self.scryfall.get_card(parsed["name"])
+                # Pass set_code so "Name s:SET" fetches the right printing
+                card_json = self.scryfall.get_card(parsed["name"], set_code=parsed.get("set"))
 
             if not card_json:
                 self.after(0, self._on_search_error, f"Card not found: {label!r}")
@@ -1347,6 +1350,8 @@ class OtterForgeApp(_AppBase):
         """Restaure deck_back_image depuis le deck actif et met à jour l'aperçu."""
         deck = self.deck_manager.active_deck()
         self.deck_back_image = deck.back_image if deck else None
+        if not self.deck_back_image and os.path.exists(OTTERFORGE_DEFAULT_BACK):
+            self.deck_back_image = OTTERFORGE_DEFAULT_BACK
         self.workspace.update_back_preview(self.deck_back_image)
 
     # ======================================================================

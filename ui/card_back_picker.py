@@ -17,7 +17,7 @@ import customtkinter as ctk
 from tkinter import filedialog
 from PIL import Image, ImageTk
 
-from config import CACHE_DIR, CARD_BACKS_DIR
+from config import CACHE_DIR, CARD_BACKS_DIR, OTTERFORGE_DEFAULT_BACK
 
 SUPPORTED_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 THUMB_W, THUMB_H = 120, 168
@@ -206,17 +206,21 @@ class CardBackPickerDialog(ctk.CTkToplevel):
         self._thumb_refs.clear()
         self._thumb_labels.clear()
 
-        # ── Built-in: standard MTG card back ─────────────────────────────────
+        # ── Built-in cards section ────────────────────────────────────────────
         mpcfill = _mpcfill_path()
         builtin_frame = ctk.CTkFrame(self._gallery_frame, fg_color="#1a1724")
         builtin_frame.pack(fill="x", pady=(0, 8), padx=2)
 
         ctk.CTkLabel(
             builtin_frame,
-            text="Standard MTG Card Back",
+            text="Default Card Backs",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#c04828",
         ).pack(anchor="w", padx=10, pady=(8, 4))
+
+        # OtterForge default back — always first
+        if os.path.exists(OTTERFORGE_DEFAULT_BACK):
+            self._add_builtin_card(builtin_frame, OTTERFORGE_DEFAULT_BACK, "OtterForge Default")
 
         if mpcfill:
             self._add_builtin_card(builtin_frame, mpcfill, "Standard MTG")
@@ -227,11 +231,13 @@ class CardBackPickerDialog(ctk.CTkToplevel):
         ctk.CTkFrame(self._gallery_frame, height=1, fg_color="#34303e").pack(
             fill="x", padx=4, pady=(0, 6))
 
-        # ── User card backs from card_backs/ ──────────────────────────────────
+        # ── User card backs from card_backs/ (excluding the pinned OtterForge default) ──
+        _pinned = os.path.normcase(os.path.abspath(OTTERFORGE_DEFAULT_BACK))
         images = sorted([
             os.path.join(CARD_BACKS_DIR, f)
             for f in os.listdir(CARD_BACKS_DIR)
             if os.path.splitext(f)[1].lower() in SUPPORTED_EXTS
+            and os.path.normcase(os.path.abspath(os.path.join(CARD_BACKS_DIR, f))) != _pinned
         ])
 
         if not images:

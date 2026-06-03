@@ -4,13 +4,15 @@ engine/proxy_watermark.py
 Two-zone proxy watermark for MTG cards.
 
 Collector bar layout (left → right):
-  [CN number]  [set symbol ~center]  [™ & © Wizards of the Coast]
+  [CN number]  [set symbol ~center]  [artist]  [™ & © Wizards of the Coast]
 
 Drawing order:
-  1. Pre-clear old stamp zone (26%→53%) — erases any previously applied stamp.
-  2. Copyright fill (53%→right edge) — hides Wizards text.
-  3. "OtterForge Proxy" tight box at fixed position (~43 % of width).
-  4. "Not for sale" small text, right-aligned in the copyright fill zone.
+  For standard dark-bordered cards:
+    1. Targeted fill (text-height only) on stamp zone + copyright zone
+       → hides artist name and WotC text with minimal visual footprint.
+  For all card types:
+    2. "OtterForge Proxy" — white outlined text at _STAMP_X.
+    3. "Not for sale"     — white outlined text, right-aligned, same row.
 """
 
 import os
@@ -27,10 +29,11 @@ _WINDOWS_FONT_CANDIDATES = [
 ]
 
 _STRIP_RATIO  = 0.08    # strip height as fraction of card height
-_STAMP_X      = 0.193   # stamp start: ~4px left of previous 0.206
-_COPYRIGHT_X  = 0.57    # copyright fill start (right zone)
+_STAMP_X      = 0.193   # "OtterForge Proxy" x-start (after CN number)
+_COPYRIGHT_X  = 0.59    # right fill zone start (clears WotC copyright)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
-_PRE_CLEAR_X  = 0.17    # left boundary of pre-clear zone
+_CARD_W_REF   = 672.0   # Scryfall native PNG width (reference for offset scaling)
+_CARD_H_REF   = 936.0   # Scryfall native PNG height (reference for offset scaling)
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -63,16 +66,78 @@ def _sample_bg(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> tuple:
     return (r, g, b)
 
 
-def _text_color(bg: tuple) -> tuple:
-    if (bg[0] + bg[1] + bg[2]) // 3 > 100:
-        return (25, 20, 30)
-    return (210, 206, 198)
+def _outlined_text(
+    draw: ImageDraw.ImageDraw,
+    pos: tuple,
+    text: str,
+    font,
+    fill: tuple = (255, 255, 255),
+    outline: tuple = (0, 0, 0),
+    epaisseur: int = 2,
+) -> None:
+    """Draw text with a stroke outline — readable on any background colour."""
+    x, y = pos
+    for dx in range(-epaisseur, epaisseur + 1):
+        for dy in range(-epaisseur, epaisseur + 1):
+            if dx or dy:
+                draw.text((x + dx, y + dy), text, fill=outline, font=font)
+    draw.text(pos, text, fill=fill, font=font)
+
+
+def _should_apply_fill(card_json: dict | None, img: Image.Image) -> bool:
+    """Return True for standard dark-bordered cards where a fill can safely
+    hide the original collector-bar text without creating visible artifacts.
+
+    Skips fill for: borderless, white-bordered, full-art, extended-art,
+    showcase, and any other non-standard frame treatment.
+    """
+    if card_json:
+        bc = card_json.get("border_color", "")
+        if bc in ("white", "borderless", "silver"):
+            return False
+        fe = card_json.get("frame_effects") or []
+        if any(e in fe for e in ("extendedart", "showcase", "inverted", "fullart")):
+            return False
+        if card_json.get("full_art", False):
+            return False
+        return bc in ("black", "gold")
+    # Fallback: pixel-sample bottom-left corner (card border zone)
+    w, h = img.size
+    sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
+    return (sample[0] + sample[1] + sample[2]) // 3 < 40
+
+
+def _fill_zone(draw: ImageDraw.ImageDraw, img: Image.Image,
+               x0: int, x1: int, y0: int, y1: int, y_sample_top: int) -> None:
+    """Fill columns x0..x1 between y0..y1 with per-column median brightness.
+
+    Samples from y_sample_top to card bottom so that majority background
+    pixels dominate the median and high-contrast text pixels are erased.
+    """
+    h = img.size[1]
+    for x in range(x0, x1):
+        col = [img.getpixel((x, y)) for y in range(y_sample_top, h)]
+        col.sort(key=lambda p: p[0] + p[1] + p[2])
+        draw.line([(x, y0), (x, y1)], fill=col[len(col) // 2])
 
 
 class ProxyWatermark:
 
-    def apply(self, image_path: str, card_json: dict | None = None) -> None:
-        """Modify the image at image_path in-place (disk write)."""
+    def apply(self, image_path: str, card_json: dict | None = None,
+              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
+        """Modify the image at image_path in-place (disk write).
+        Saves a clean _orig.png alongside on first application (for preview use).
+        """
+        # Preserve the pre-watermark original for zoom-preview transparency
+        if image_path.endswith(".png"):
+            _orig = image_path.replace(".png", "_orig.png")
+            if not os.path.exists(_orig):
+                try:
+                    import shutil as _sh
+                    _sh.copy2(image_path, _orig)
+                except Exception:
+                    pass
+
         try:
             raw = Image.open(image_path)
             if raw.mode in ("RGBA", "LA", "PA"):
@@ -85,15 +150,23 @@ class ProxyWatermark:
             print(f"[ProxyWatermark] Cannot open {image_path!r}: {e}")
             return
 
-        self._draw(img, card_json)
+        self._draw(img, card_json, offset, nfs_offset)
         img.save(image_path, "PNG", compress_level=6)
         print(f"[ProxyWatermark] Applied: {os.path.basename(image_path)}")
 
-    def apply_to_image(self, img: Image.Image, card_json: dict | None = None) -> None:
-        self._draw(img, card_json)
+    def apply_to_image(self, img: Image.Image, card_json: dict | None = None,
+                       offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
+        self._draw(img, card_json, offset, nfs_offset)
 
-    def _draw(self, img: Image.Image, card_json: dict | None) -> None:
+    def _draw(self, img: Image.Image, card_json: dict | None,
+              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
         w, h = img.size
+
+        # Scale offsets from 672×936 reference to actual image dimensions
+        ox     = round(offset[0]     * w / _CARD_W_REF)
+        oy     = round(offset[1]     * h / _CARD_H_REF)
+        nfs_ox = round(nfs_offset[0] * w / _CARD_W_REF)
+        nfs_oy = round(nfs_offset[1] * h / _CARD_H_REF)
 
         strip_h = max(14, int(h * _STRIP_RATIO)) - 9
         y_top   = h - strip_h
@@ -102,59 +175,50 @@ class ProxyWatermark:
         if not stamp:
             return
 
-        sz   = max(10, int(h * 0.020))
+        sz   = max(9, int(h * 0.020) - 1)
         font = _load_font(sz)
 
-        copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
-        text_y = max(y_top + 1, copyright_y) - 5   # 1px higher than before
+        copyright_y  = h - max(sz + 2, int(h * _COPYRIGHT_Y))
+        base_text_y  = max(y_top + 1, copyright_y) - 3   # baseline, before offsets
 
-        # Measure stamp text dimensions before pre-clear so we can limit its height
+        # Measure text height for the targeted fill (uses base position)
         try:
             bb = font.getbbox(stamp)
-            text_w    = bb[2] - bb[0]
             text_h_px = bb[3] - bb[1]
         except Exception:
-            text_w    = len(stamp) * max(4, sz * 6 // 10)
             text_h_px = sz
 
-        draw = ImageDraw.Draw(img)
-
-        stamp_x = int(w * _STAMP_X)
-        cx      = int(w * _COPYRIGHT_X)
-
-        # Sample bg_right before fill for "Not for sale" text colour reference
-        bg_right = _sample_bg(img, int(w * 0.70), y_top, int(w * 0.90), h)
-
-        # ── 1. Copyright fill — per-column median, no hard edge / no overflow ─
-        # For each column, take the median brightness pixel in the strip as the
-        # background colour.  Text pixels (minority, high contrast) fall outside
-        # the median and get overwritten; the rest of the strip looks unchanged.
-        for x in range(cx, w):
-            col = [img.getpixel((x, y)) for y in range(y_top, h)]
-            col.sort(key=lambda p: p[0] + p[1] + p[2])
-            bg_col = col[len(col) // 2]
-            draw.line([(x, y_top), (x, h - 1)], fill=bg_col)
-
-        # ── 2. "OtterForge Proxy" — tight bg box, colour from left footer edge ─
-        # Sample from the far-left CN zone (0–12 %) which is untouched and holds
-        # the true card-frame colour.
-        text_x   = stamp_x
-        bg_stamp = _sample_bg(img, 0, y_top, int(w * 0.12), h)
-        draw.rectangle(
-            [text_x,              text_y - 1,
-             text_x + text_w + 1, text_y + text_h_px + 1],
-            fill=bg_stamp,
-        )
-        draw.text((text_x, text_y), stamp, fill=_text_color(bg_stamp), font=font)
-
-        # ── 4. "Not for sale" — same y-line, right-aligned in copyright zone ─
         nfs = "Not for sale"
         try:
             nfs_w = font.getbbox(nfs)[2] - font.getbbox(nfs)[0]
         except Exception:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
-        nfs_x = w - max(4, w // 60) - nfs_w - 32
-        draw.text((nfs_x, text_y), nfs, fill=_text_color(bg_right), font=font)
+
+        stamp_x   = max(0, min(w - 1, int(w * _STAMP_X) + ox))
+        stamp_ty  = max(0, min(h - sz - 1, base_text_y + oy))
+
+        cx         = int(w * _COPYRIGHT_X)
+        apply_fill = _should_apply_fill(card_json, img)
+
+        if apply_fill:
+            nfs_x = max(0, min(w - 1, w - max(4, w // 60) - nfs_w - 40     + nfs_ox))
+        else:
+            nfs_x = max(0, min(w - 1, max(w // 2, w - max(4, w // 60) - nfs_w - 190) + nfs_ox))
+        nfs_ty = max(0, min(h - sz - 1, base_text_y + nfs_oy))
+
+        # Fill zones anchored on base_text_y so WotC text is always erased
+        fill_y0 = max(y_top, base_text_y - 2)
+        fill_y1 = min(h - 1, base_text_y + text_h_px + 2)
+
+        draw = ImageDraw.Draw(img)
+
+        if apply_fill:
+            # Right zone only: WotC copyright, text height only
+            # Left fill removed — OtterForge Proxy is readable with outline; artist preserved
+            _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
+
+        _outlined_text(draw, (stamp_x, stamp_ty), stamp, font, epaisseur=1)
+        _outlined_text(draw, (nfs_x,   nfs_ty),   nfs,   font, epaisseur=1)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"

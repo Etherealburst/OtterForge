@@ -710,6 +710,12 @@ class Workspace(ctk.CTkFrame):
             item = self.text_to_card_item[item]
         if item not in self.canvas_items:
             item = None
+        # find_closest returns nearest item even when mouse is in empty space — verify bounds
+        if item is not None:
+            d = self.canvas_items[item]
+            if not (d["x"] <= cx <= d["x"] + self._card_w
+                    and d["y"] <= cy <= d["y"] + self._card_h):
+                item = None
 
         if item == self._hover_item:
             return

@@ -67,7 +67,8 @@ MPC_GAP = 30
 CACHE_DIR      = _s.get("cache_dir",  os.path.join(BASE_DIR, "cache"))
 OUTPUT_DIR     = _s.get("output_dir", os.path.join(BASE_DIR, "output"))
 DECKS_DIR      = _s.get("decks_dir",  os.path.join(BASE_DIR, "decks"))
-CARD_BACKS_DIR = os.path.join(BASE_DIR, "card_backs")
+CARD_BACKS_DIR         = os.path.join(BASE_DIR, "card_backs")
+OTTERFORGE_DEFAULT_BACK = os.path.join(CARD_BACKS_DIR, "OtterForge_CardBack_1200dpi.png")
 
 # ------------------------------------------------------------------
 # UPSCALING (Real-ESRGAN) — surchargeable via config_user.json

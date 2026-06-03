@@ -87,7 +87,7 @@ class ImageUpscaler:
             )
 
         self._fit_to_mpc(output_path)
-        print(f"[ImageUpscaler] OK → {output_path}")
+        print(f"[ImageUpscaler] OK -> {output_path}")
         return output_path
 
     def _fit_to_mpc(self, image_path: str) -> None:
@@ -115,8 +115,8 @@ class ImageUpscaler:
         y_off = (MPC_TARGET_H - new_h) // 2
         canvas.paste(img.convert("RGB"), (x_off, y_off))
         canvas.save(image_path, "PNG", compress_level=9, optimize=True)
-        print(f"[ImageUpscaler] Bleed ajouté → {MPC_TARGET_W}×{MPC_TARGET_H} px "
-              f"(carte : {new_w}×{new_h}, offset : {x_off},{y_off})")
+        print(f"[ImageUpscaler] Bleed {MPC_TARGET_W}x{MPC_TARGET_H} px "
+              f"(card: {new_w}x{new_h}, offset: {x_off},{y_off})")
 
     def fit_native_to_mpc_300(self, input_path: str, output_path: str) -> str:
         """Adapte une image Scryfall native (745×1040) au format MPC 300 DPI (822×1122) avec bleed.
@@ -141,7 +141,7 @@ class ImageUpscaler:
         y_off = (MPC_TARGET_H_300 - new_h) // 2
         canvas.paste(img.convert("RGB"), (x_off, y_off))
         canvas.save(output_path, "PNG")
-        print(f"[ImageUpscaler] 300 DPI bleed → {output_path}")
+        print(f"[ImageUpscaler] 300 DPI bleed -> {output_path}")
         return output_path
 
     # Alias pour compatibilité avec l'ancien code
