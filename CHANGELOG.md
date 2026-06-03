@@ -4,6 +4,19 @@ All notable changes to OtterForge are documented here.
 
 ---
 
+## [v1.5.2] — 2026-06-03
+
+### Fixed
+- **Zoom popup double-ouverture** — `grab_release()` appelé sur l'ancien popup avant sa destruction, évite le "vol de grab" non documenté sur Windows
+- **`_refresh_canvas` après fermeture** — guard `popup.winfo_exists()` empêche une `TclError` silencieuse si le popup est fermé avant que le thread image ait terminé
+- **Stats de deck jamais persistées hors exe dir** — `os.makedirs("cache")` (CWD relatif) remplacé par `os.makedirs(os.path.dirname(_METADATA_CACHE_PATH))` (chemin absolu) ; la courbe de mana et les types de cartes sont maintenant correctement sauvegardés entre sessions même si l'exe est lancé via raccourci Windows
+- **`_on_popup_press` borne exclusive** — `<= cv_w` → `< cv_w` : le pixel à exactement `x == cv_w` est maintenant correctement traité comme clic extérieur
+
+### Improved
+- **`_InspectorTooltip`** — police ramenée à 9pt (proportionnée à 100% DPI Windows)
+
+---
+
 ## [v1.5.1] — 2026-06-03
 
 ### Fixed
