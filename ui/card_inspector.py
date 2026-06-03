@@ -112,7 +112,7 @@ class _InspectorTooltip:
             background="#3a3548", foreground="#f0ece4",
             relief="solid", borderwidth=1,
             highlightbackground="#c04828", highlightthickness=1,
-            font=("Segoe UI", 20),
+            font=("Segoe UI", 9),
             padx=16, pady=10, justify="left",
         ).pack()
 
@@ -387,7 +387,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         self.refresh_stats()
 
     def _save_metadata_cache(self) -> None:
-        os.makedirs("cache", exist_ok=True)
+        os.makedirs(os.path.dirname(_METADATA_CACHE_PATH), exist_ok=True)
         try:
             with open(_METADATA_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(self._metadata_cache, f, ensure_ascii=False, indent=2)
@@ -772,6 +772,10 @@ class CardInspectorPanel(ctk.CTkFrame):
 
         if getattr(self, '_zoom_popup', None) is not None:
             try:
+                self._zoom_popup.grab_release()
+            except Exception:
+                pass
+            try:
                 self._zoom_popup.destroy()
             except Exception:
                 pass
@@ -903,6 +907,11 @@ class CardInspectorPanel(ctk.CTkFrame):
 
         def _refresh_canvas():
             if _base_img[0] is None:
+                return
+            try:
+                if not popup.winfo_exists():
+                    return
+            except Exception:
                 return
             img  = _base_img[0].copy()
             draw = ImageDraw.Draw(img)
@@ -1045,7 +1054,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         def _on_popup_press(event):
             if _asking[0]:
                 return
-            outside = not (0 <= event.x <= cv_w and 0 <= event.y <= cv_h)
+            outside = not (0 <= event.x < cv_w and 0 <= event.y < cv_h)
             if outside:
                 _try_close()
 
