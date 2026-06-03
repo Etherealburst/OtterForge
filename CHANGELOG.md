@@ -4,6 +4,25 @@ All notable changes to OtterForge are documented here.
 
 ---
 
+## [v1.5.0] — 2026-06-03
+
+### Added
+- **Watermark zoom popup** — click the card image in the inspector to open a full-resolution zoom where you can drag-and-drop the "OtterForge Proxy" and "Not for sale" stamps to any position; changes are saved per-card and reapplied on the disk image
+- **Save / Back dialog** — after dragging a stamp, clicking anywhere outside the zoom shows a centred overlay asking to Save (writes offset to card + re-downloads + re-stamps) or Back (reverts position, stays in zoom)
+- **Artist name preserved** — removed the left collector-bar fill zone; artist name is now visible on the final printed card; "OtterForge Proxy" text is still clearly legible via white + black outline on any background
+
+### Fixed
+- **Workspace hover glow** — the orange highlight rectangle now only appears when the mouse is actually over a card; previously `find_closest` would illuminate a card even when the cursor was in empty canvas space
+- **Search dropdown closes on outside click** — clicking anywhere outside the search entry or history list now hides the dropdown (previously stayed open until an item was selected)
+- **Search dropdown opens on re-click** — clicking the entry again when it already has focus now re-opens the dropdown (`<Button-1>` binding added alongside `<FocusIn>`)
+- **"Not for sale" position in zoom** — NFS text position in the zoom popup now matches the actual card position (uses the apply_fill formula from card metadata — borderless / showcase / full-art cards use a different offset)
+- **Zoom popup size** — popup now fills the available workspace area (up to 500 px wide) instead of a fixed 380 px
+
+### Improved
+- **Unified tooltip style** — all tooltips (sidebar, inspector, workspace, search dropdown) now use Segoe UI 20 pt, background `#3a3548`, border `#c04828`
+
+---
+
 ## [v1.4.1] — 2026-06-01
 
 ### Fixed

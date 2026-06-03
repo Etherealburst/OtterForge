@@ -8,7 +8,7 @@ OtterForge is a Windows desktop app that lets you build proxy MTG decks from scr
 
 ## Download
 
-**[⬇ Download OtterForge v1.4.1 (Windows, ~370 MB)](https://github.com/Etherealburst/OtterForge/releases/tag/v1.4.1)**
+**[⬇ Download OtterForge v1.5.0 (Windows, ~370 MB)](https://github.com/Etherealburst/OtterForge/releases/tag/v1.5.0)**
 
 Unzip anywhere → double-click `OtterForge.exe` → done. No installation required.
 
