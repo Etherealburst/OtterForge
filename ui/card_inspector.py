@@ -882,10 +882,29 @@ class CardInspectorPanel(ctk.CTkFrame):
             elif _bc not in ("black", "gold"):
                 _apply_fill = False
 
+        # base_nfs_x: compute in native 672px space (matches proxy_watermark._draw exactly),
+        # then scale to canvas. Using canvas-space constants directly caused a systematic
+        # offset because sz (font size) and the -40/-190 margins don't scale proportionally.
+        _native_sz = max(9, int(936 * 0.020) - 1)  # = 17, same reference as proxy_watermark
+        _native_font = None
+        for _fp in _font_cands:
+            try:
+                _native_font = ImageFont.truetype(_fp, _native_sz)
+                break
+            except Exception:
+                pass
+        if _native_font is None:
+            _native_font = ImageFont.load_default()
+        try:
+            _nfs_w_native = _md.textbbox((0, 0), "Not for sale", font=_native_font)[2]
+        except AttributeError:
+            _nfs_w_native = len("Not for sale") * max(4, _native_sz * 6 // 10)
+        _nm = max(4, 672 // 60)   # native right margin (= max(4, 11) = 11)
         if _apply_fill:
-            base_nfs_x = cv_w - max(4, cv_w // 60) - nfs_tw - 40
+            _nfs_x_native = 672 - _nm - _nfs_w_native - 40
         else:
-            base_nfs_x = max(cv_w // 2, cv_w - max(4, cv_w // 60) - nfs_tw - 190)
+            _nfs_x_native = max(672 // 2, 672 - _nm - _nfs_w_native - 190)
+        base_nfs_x = round(_nfs_x_native * cv_w / 672)
 
         init_sx    = base_sx    + round(cur_ox     * cv_w / 672)
         init_ty    = base_ty    + round(cur_oy     * cv_h / 936)

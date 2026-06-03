@@ -4,6 +4,13 @@ All notable changes to OtterForge are documented here.
 
 ---
 
+## [v1.5.3] — 2026-06-03
+
+### Fixed
+- **"Not for sale" position mismatch between zoom popup and printed card** — zoom popup was computing the NFS base position using canvas-space constants (`-40`/`-190` px) and a smaller font size (`sz` based on `cv_h ≈ 700px`), while `proxy_watermark._draw()` uses native-space constants and a larger font (`sz` based on `h = 936px`). For borderless and white-border cards (Sol Ring SLD, Lightning Bolt 3ED, etc.) this produced a systematic ~3% leftward offset in the zoom preview. Fix: base position is now computed in native 672×936 space with the native font size, then scaled to canvas — exactly matching the proxy_watermark formula.
+
+---
+
 ## [v1.5.2] — 2026-06-03
 
 ### Fixed
