@@ -32,6 +32,8 @@ _STRIP_RATIO  = 0.08    # strip height as fraction of card height
 _STAMP_X      = 0.193   # "OtterForge Proxy" x-start (after CN number)
 _COPYRIGHT_X  = 0.59    # right fill zone start (clears WotC copyright)
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
+_CARD_W_REF   = 672.0   # Scryfall native PNG width (reference for offset scaling)
+_CARD_H_REF   = 936.0   # Scryfall native PNG height (reference for offset scaling)
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -121,8 +123,21 @@ def _fill_zone(draw: ImageDraw.ImageDraw, img: Image.Image,
 
 class ProxyWatermark:
 
-    def apply(self, image_path: str, card_json: dict | None = None) -> None:
-        """Modify the image at image_path in-place (disk write)."""
+    def apply(self, image_path: str, card_json: dict | None = None,
+              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
+        """Modify the image at image_path in-place (disk write).
+        Saves a clean _orig.png alongside on first application (for preview use).
+        """
+        # Preserve the pre-watermark original for zoom-preview transparency
+        if image_path.endswith(".png"):
+            _orig = image_path.replace(".png", "_orig.png")
+            if not os.path.exists(_orig):
+                try:
+                    import shutil as _sh
+                    _sh.copy2(image_path, _orig)
+                except Exception:
+                    pass
+
         try:
             raw = Image.open(image_path)
             if raw.mode in ("RGBA", "LA", "PA"):
@@ -135,15 +150,23 @@ class ProxyWatermark:
             print(f"[ProxyWatermark] Cannot open {image_path!r}: {e}")
             return
 
-        self._draw(img, card_json)
+        self._draw(img, card_json, offset, nfs_offset)
         img.save(image_path, "PNG", compress_level=6)
         print(f"[ProxyWatermark] Applied: {os.path.basename(image_path)}")
 
-    def apply_to_image(self, img: Image.Image, card_json: dict | None = None) -> None:
-        self._draw(img, card_json)
+    def apply_to_image(self, img: Image.Image, card_json: dict | None = None,
+                       offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
+        self._draw(img, card_json, offset, nfs_offset)
 
-    def _draw(self, img: Image.Image, card_json: dict | None) -> None:
+    def _draw(self, img: Image.Image, card_json: dict | None,
+              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
         w, h = img.size
+
+        # Scale offsets from 672×936 reference to actual image dimensions
+        ox     = round(offset[0]     * w / _CARD_W_REF)
+        oy     = round(offset[1]     * h / _CARD_H_REF)
+        nfs_ox = round(nfs_offset[0] * w / _CARD_W_REF)
+        nfs_oy = round(nfs_offset[1] * h / _CARD_H_REF)
 
         strip_h = max(14, int(h * _STRIP_RATIO)) - 9
         y_top   = h - strip_h
@@ -152,13 +175,13 @@ class ProxyWatermark:
         if not stamp:
             return
 
-        sz   = max(9, int(h * 0.020) - 1)    # font size -1
+        sz   = max(9, int(h * 0.020) - 1)
         font = _load_font(sz)
 
-        copyright_y = h - max(sz + 2, int(h * _COPYRIGHT_Y))
-        text_y = max(y_top + 1, copyright_y) - 3   # moved up vs previous +2
+        copyright_y  = h - max(sz + 2, int(h * _COPYRIGHT_Y))
+        base_text_y  = max(y_top + 1, copyright_y) - 3   # baseline, before offsets
 
-        # Measure text height for the targeted fill
+        # Measure text height for the targeted fill (uses base position)
         try:
             bb = font.getbbox(stamp)
             text_h_px = bb[3] - bb[1]
@@ -171,37 +194,31 @@ class ProxyWatermark:
         except Exception:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
-        stamp_x   = int(w * _STAMP_X)
-        cx        = int(w * _COPYRIGHT_X)
+        stamp_x   = max(0, min(w - 1, int(w * _STAMP_X) + ox))
+        stamp_ty  = max(0, min(h - sz - 1, base_text_y + oy))
+
+        cx         = int(w * _COPYRIGHT_X)
         apply_fill = _should_apply_fill(card_json, img)
 
-        # NFS x: standard dark cards keep right-aligned position;
-        # extended/borderless shift 3× further left (floor at card centre).
         if apply_fill:
-            nfs_x = w - max(4, w // 60) - nfs_w - 40
+            nfs_x = max(0, min(w - 1, w - max(4, w // 60) - nfs_w - 40     + nfs_ox))
         else:
-            nfs_x = max(w // 2, w - max(4, w // 60) - nfs_w - 190)
-        nfs_y = text_y
+            nfs_x = max(0, min(w - 1, max(w // 2, w - max(4, w // 60) - nfs_w - 190) + nfs_ox))
+        nfs_ty = max(0, min(h - sz - 1, base_text_y + nfs_oy))
 
-        # Fill band: text height + 2px padding, stays within the strip
-        fill_y0 = max(y_top, text_y - 2)
-        fill_y1 = min(h - 1, text_y + text_h_px + 2)
+        # Fill zones anchored on base_text_y so WotC text is always erased
+        fill_y0 = max(y_top, base_text_y - 2)
+        fill_y1 = min(h - 1, base_text_y + text_h_px + 2)
 
         draw = ImageDraw.Draw(img)
 
         if apply_fill:
-            # Left zone: covers OtterForge Proxy text + stale artifacts.
-            # Ends at ~45% (text can extend to ~45%, set symbol starts at ~62%).
-            # Full strip height (y_top→h-1) to erase any old artifact at any offset.
-            _fill_zone(draw, img, stamp_x, int(w * 0.45), y_top, h - 1, y_top)
-            # Right zone: WotC copyright (70% to edge), text height only.
+            # Right zone only: WotC copyright, text height only
+            # Left fill removed — OtterForge Proxy is readable with outline; artist preserved
             _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
 
-        # ── "OtterForge Proxy" — white outlined text (epaisseur 1) ───────────
-        _outlined_text(draw, (stamp_x, text_y), stamp, font, epaisseur=1)
-
-        # ── "Not for sale" — white outlined text (epaisseur 1) ───────────────
-        _outlined_text(draw, (nfs_x, nfs_y), nfs, font, epaisseur=1)
+        _outlined_text(draw, (stamp_x, stamp_ty), stamp, font, epaisseur=1)
+        _outlined_text(draw, (nfs_x,   nfs_ty),   nfs,   font, epaisseur=1)
 
     def _stamp(self, card_json: dict | None) -> str:
         return "OtterForge Proxy"

@@ -118,6 +118,12 @@ class DeckManager:
             card = Card(c["name"], c["image_path"])
             card.count = c.get("count", 1)
             card.back_image_path = c.get("back_image_path")
+            wo = c.get("watermark_offset")
+            if wo and len(wo) == 2:
+                card.watermark_offset = (int(wo[0]), int(wo[1]))
+            wno = c.get("watermark_nfs_offset")
+            if wno and len(wno) == 2:
+                card.watermark_nfs_offset = (int(wno[0]), int(wno[1]))
             self.add_card(card)
 
     # ------------------------------------------------------------------
@@ -167,6 +173,12 @@ class DeckManager:
                 continue
             card = Card(c["name"], image_path)
             card.count = c.get("count", 1)
+            wo = c.get("watermark_offset")
+            if wo and len(wo) == 2:
+                card.watermark_offset = (int(wo[0]), int(wo[1]))
+            wno = c.get("watermark_nfs_offset")
+            if wno and len(wno) == 2:
+                card.watermark_nfs_offset = (int(wno[0]), int(wno[1]))
             # Résoudre back_image_path : fallback natif si l'upscalé est absent
             bp = c.get("back_image_path")
             if bp:

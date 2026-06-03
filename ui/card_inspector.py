@@ -11,9 +11,73 @@ import json
 import threading
 import tkinter as tk
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from config import CACHE_DIR
+
+
+# ── Cache helpers (used by inspector buttons) ─────────────────────────────────
+
+def _cache_stem(image_path: str) -> str:
+    """Return the root stem (no suffix, no face tag) for a cache image path."""
+    base = image_path
+    for suf in ("_1200dpi.png", "_mpc300.png"):
+        if base.endswith(suf):
+            base = base[: -len(suf)] + ".png"
+            break
+    # Strip .png
+    stem = base[:-4] if base.endswith(".png") else base
+    # Strip _face0 / _face1
+    for face in ("_face0", "_face1"):
+        if stem.endswith(face):
+            stem = stem[: -len(face)]
+            break
+    return stem
+
+
+def _delete_card_cache_files(image_path: str) -> int:
+    """Delete all cache variants for a card. Returns count of deleted files."""
+    stem = _cache_stem(image_path)
+    variants = [
+        f"{stem}.png",
+        f"{stem}_1200dpi.png",
+        f"{stem}_mpc300.png",
+        f"{stem}_orig.png",
+        f"{stem}_face0.png",
+        f"{stem}_face0_1200dpi.png",
+        f"{stem}_face0_mpc300.png",
+        f"{stem}_face0_orig.png",
+        f"{stem}_face1.png",
+        f"{stem}_face1_1200dpi.png",
+        f"{stem}_face1_mpc300.png",
+        f"{stem}_face1_orig.png",
+    ]
+    deleted = 0
+    for p in variants:
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+                deleted += 1
+            except OSError:
+                pass
+    return deleted
+
+
+def _load_card_meta(image_path: str) -> dict | None:
+    """Load Scryfall card_json from the meta cache, inferring set+CN from the filename."""
+    stem = _cache_stem(image_path)
+    parts = os.path.basename(stem).split("_")
+    if len(parts) >= 2:
+        collector = parts[-1]
+        set_code = parts[-2]
+        meta_path = os.path.join(os.path.dirname(stem), f"_meta_{set_code}_{collector}.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return None
 
 _CARD_RATIO = 420 / 300   # hauteur / largeur MTG standard
 _METADATA_CACHE_PATH = os.path.join(CACHE_DIR, "card_metadata.json")
@@ -197,6 +261,28 @@ class CardInspectorPanel(ctk.CTkFrame):
             font=ctk.CTkFont(size=9), text_color="#a09aaa", anchor="w",
         )
         self._dfc_label.pack(padx=14, anchor="w", pady=(2, 0))
+
+        # Action buttons
+        btn_row = ctk.CTkFrame(self._card_pane, fg_color="transparent")
+        btn_row.pack(padx=12, pady=(10, 4), fill="x")
+
+        self._btn_clear_cache = ctk.CTkButton(
+            btn_row, text="Clear Cache", width=112, height=26,
+            font=ctk.CTkFont(size=10),
+            fg_color="#28252e", hover_color="#3a3548",
+            state="disabled",
+            command=self._on_clear_cache,
+        )
+        self._btn_clear_cache.pack(side="left", padx=(0, 4))
+
+        self._btn_move_wm = ctk.CTkButton(
+            btn_row, text="Move WM", width=112, height=26,
+            font=ctk.CTkFont(size=10),
+            fg_color="#28252e", hover_color="#3a3548",
+            state="disabled",
+            command=self._on_move_watermark,
+        )
+        self._btn_move_wm.pack(side="left")
 
     # ── Stats pane ────────────────────────────────────────────────────────────
 
@@ -631,6 +717,10 @@ class CardInspectorPanel(ctk.CTkFrame):
                 break
         self._meta_label.configure(text=set_hint)
 
+        # Enable action buttons
+        self._btn_clear_cache.configure(state="normal")
+        self._btn_move_wm.configure(state="normal")
+
         # Image en thread
         threading.Thread(
             target=self._load_image_bg,
@@ -664,12 +754,16 @@ class CardInspectorPanel(ctk.CTkFrame):
         self._img_label.configure(image=ctk_img, text="", fg_color="transparent")
 
     def _open_zoom_popup(self) -> None:
-        """Ouvre un popup centré avec la carte agrandie. Clic ou Échap pour fermer."""
+        """Zoom popup — deux blocs watermark draggables.
+
+        Charge l'image originale (_orig.png) si disponible : artiste visible,
+        pas de doublon, fond transparent car le texte est cuisiné dans le PIL.
+        Clic hors popup → dialog enfant tk.Toplevel (popup reste visible).
+        """
         card = self._current_card
         if card is None:
             return
 
-        # Ferme un éventuel popup déjà ouvert
         if getattr(self, '_zoom_popup', None) is not None:
             try:
                 self._zoom_popup.destroy()
@@ -681,31 +775,35 @@ class CardInspectorPanel(ctk.CTkFrame):
         ws = self.app.workspace
         ws.update_idletasks()
 
-        # DPI scale: CTkToplevel.geometry() scales WxH (logical→physical) but NOT +x+y.
-        # +x+y must be physical pixels to center correctly.
         try:
             from customtkinter import ScalingTracker
             _scale = ScalingTracker.get_window_scaling(self.app)
         except Exception:
             _scale = max(1.0, self.app.winfo_fpixels('1i') / 96.0)
 
-        img_w = 380
-        img_h = int(img_w * _CARD_RATIO)
+        from PIL import ImageTk as _ImageTk
+
+        # Cap to workspace with margin, keep card ratio
+        max_phys_w = max(300, ws.winfo_width()  - 40)
+        max_phys_h = max(420, ws.winfo_height() - 40)
+        img_w_log = min(500, int(max_phys_w / _scale))
+        img_h_log = int(img_w_log * _CARD_RATIO)
+        if img_h_log > int(max_phys_h / _scale):
+            img_h_log = int(max_phys_h / _scale)
+            img_w_log = int(img_h_log / _CARD_RATIO)
+        cv_w = round(img_w_log * _scale)
+        cv_h = round(img_h_log * _scale)
 
         ws_rx = ws.winfo_rootx()
         ws_ry = ws.winfo_rooty()
         ws_pw = ws.winfo_width()
         ws_ph = ws.winfo_height()
+        px = max(0, ws_rx + (ws_pw - cv_w) // 2)
+        py = max(0, ws_ry + (ws_ph - cv_h) // 2)
 
-        # Physical popup size (CTk will upscale the logical WxH)
-        phys_w = round(img_w * _scale)
-        phys_h = round(img_h * _scale)
-        px = max(0, ws_rx + (ws_pw - phys_w) // 2)
-        py = max(0, ws_ry + (ws_ph - phys_h) // 2)
-
-        popup = ctk.CTkToplevel(self.app)
+        popup = tk.Toplevel(self.app)
         popup.overrideredirect(True)
-        popup.geometry(f"{img_w}x{img_h}+{px}+{py}")
+        popup.geometry(f"{cv_w}x{cv_h}+{px}+{py}")
         popup.lift()
         self._zoom_popup = popup
 
@@ -719,25 +817,231 @@ class CardInspectorPanel(ctk.CTkFrame):
                 pass
             self._zoom_popup = None
 
-        lbl = ctk.CTkLabel(popup, text="", fg_color="#1c1a20",
-                           width=img_w, height=img_h, corner_radius=8)
-        lbl.pack(fill="both", expand=True)
+        canvas = tk.Canvas(popup, width=cv_w, height=cv_h,
+                           bg="#1c1a20", highlightthickness=0, cursor="fleur")
+        canvas.pack()
 
-        close = lambda e=None: _conditional_close(popup)
-        popup.bind("<Button-1>", close)
-        popup.bind("<Escape>", close)
-        lbl.bind("<Button-1>", close)
+        # ── Watermark geometry ────────────────────────────────────────────────
+        cur_ox,     cur_oy     = getattr(card, "watermark_offset",     (0, 0))
+        cur_nfs_ox, cur_nfs_oy = getattr(card, "watermark_nfs_offset", (0, 0))
 
-        # Clic en dehors du popup → fermer. bind_all capte tous les clics de l'app.
-        # _active démarre à False pour ignorer le clic d'ouverture lui-même.
-        _active = [False]
+        strip_h = max(14, int(cv_h * 0.08)) - 9
+        y_top   = cv_h - strip_h
+        sz      = max(9, int(cv_h * 0.020) - 1)
+        copy_y  = cv_h - max(sz + 2, int(cv_h * 0.065))
+        base_ty = max(y_top + 1, copy_y) - 3
+        base_sx = int(cv_w * 0.193)
+
+        # ── PIL font ──────────────────────────────────────────────────────────
+        _font_cands = [r"C:\Windows\Fonts\arialbd.ttf", r"C:\Windows\Fonts\arial.ttf",
+                       r"C:\Windows\Fonts\segoeui.ttf"]
+        pil_font = None
+        for _fp in _font_cands:
+            try:
+                pil_font = ImageFont.truetype(_fp, sz)
+                break
+            except Exception:
+                pass
+        if pil_font is None:
+            pil_font = ImageFont.load_default()
+
+        _m = Image.new("RGB", (1, 1))
+        _md = ImageDraw.Draw(_m)
+        try:
+            stamp_w = _md.textbbox((0, 0), "OtterForge Proxy", font=pil_font)[2]
+            nfs_tw  = _md.textbbox((0, 0), "Not for sale",     font=pil_font)[2]
+        except AttributeError:
+            stamp_w = len("OtterForge Proxy") * max(4, sz * 6 // 10)
+            nfs_tw  = len("Not for sale")     * max(4, sz * 6 // 10)
+
+        # Determine apply_fill from card metadata so NFS position matches actual watermark
+        _cj = _load_card_meta(card.image_path)
+        _apply_fill = True
+        if _cj:
+            _bc = _cj.get("border_color", "")
+            _fe = _cj.get("frame_effects") or []
+            if (_bc in ("white", "borderless", "silver")
+                    or any(e in _fe for e in ("extendedart", "showcase", "inverted", "fullart"))
+                    or _cj.get("full_art", False)):
+                _apply_fill = False
+            elif _bc not in ("black", "gold"):
+                _apply_fill = False
+
+        if _apply_fill:
+            base_nfs_x = cv_w - max(4, cv_w // 60) - nfs_tw - 40
+        else:
+            base_nfs_x = max(cv_w // 2, cv_w - max(4, cv_w // 60) - nfs_tw - 190)
+
+        init_sx    = base_sx    + round(cur_ox     * cv_w / 672)
+        init_ty    = base_ty    + round(cur_oy     * cv_h / 936)
+        init_nfs_x = base_nfs_x + round(cur_nfs_ox * cv_w / 672)
+        init_nfs_y = base_ty    + round(cur_nfs_oy * cv_h / 936)
+
+        # ── PIL image state ───────────────────────────────────────────────────
+        _base_img   = [None]
+        _canvas_img = [None]
+        _canvas_tk  = [None]
+
+        # ── State variables ────────────────────────────────────────────────────
+        _drag_origin = [0, 0]
+        _act_group   = [None]
+        _dt_stamp    = [0, 0]
+        _dt_nfs      = [0, 0]
+        _dragged     = [False]
+        _asking      = [False]
+        _active      = [False]
+
+        def _refresh_canvas():
+            if _base_img[0] is None:
+                return
+            img  = _base_img[0].copy()
+            draw = ImageDraw.Draw(img)
+            sx = init_sx    + _dt_stamp[0]
+            sy = init_ty    + _dt_stamp[1]
+            nx = init_nfs_x + _dt_nfs[0]
+            ny = init_nfs_y + _dt_nfs[1]
+            for ddx, ddy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                draw.text((sx+ddx, sy+ddy), "OtterForge Proxy", fill=(0,0,0), font=pil_font)
+                draw.text((nx+ddx, ny+ddy), "Not for sale",     fill=(0,0,0), font=pil_font)
+            draw.text((sx, sy), "OtterForge Proxy", fill=(255,255,255), font=pil_font)
+            draw.text((nx, ny), "Not for sale",     fill=(255,255,255), font=pil_font)
+            new_tk = _ImageTk.PhotoImage(img)
+            if _canvas_img[0] is None:
+                _canvas_img[0] = canvas.create_image(0, 0, image=new_tk, anchor="nw")
+            else:
+                canvas.itemconfig(_canvas_img[0], image=new_tk)
+            _canvas_tk[0] = new_tk
+            self._zoom_img_ref = new_tk
+
+        # ── Save dialog — overlay frame inside popup (popup reste visible) ──────
+        def _show_save_dialog():
+            if _asking[0]:
+                return
+            _asking[0] = True
+            ov_w = min(cv_w - 20, 600)
+            ov_h = 300
+            ov_x = (cv_w - ov_w) // 2
+            ov_y = (cv_h - ov_h) // 2
+            overlay = tk.Frame(
+                popup, bg="#1c1a20",
+                highlightbackground="#c04828", highlightthickness=2,
+            )
+            overlay.place(x=ov_x, y=ov_y, width=ov_w, height=ov_h)
+            overlay.lift()
+
+            tk.Label(overlay, text="Save changes?", bg="#1c1a20", fg="#f0ece4",
+                     font=("Segoe UI", 22, "bold")).pack(pady=(44, 22))
+            btn_row = tk.Frame(overlay, bg="#1c1a20")
+            btn_row.pack()
+
+            def _save():
+                overlay.destroy()
+                _asking[0] = False
+                card.watermark_offset = (
+                    cur_ox + round(_dt_stamp[0] * 672 / cv_w),
+                    cur_oy + round(_dt_stamp[1] * 936 / cv_h),
+                )
+                card.watermark_nfs_offset = (
+                    cur_nfs_ox + round(_dt_nfs[0] * 672 / cv_w),
+                    cur_nfs_oy + round(_dt_nfs[1] * 936 / cv_h),
+                )
+                if hasattr(self.app, "_auto_save"):
+                    self.app._auto_save()
+                _conditional_close(popup)
+                self._reapply_watermark(card)
+
+            def _back():
+                # Close overlay only — popup (zoom) stays open
+                overlay.destroy()
+                _asking[0] = False
+                _dt_stamp[0] = _dt_stamp[1] = 0
+                _dt_nfs[0]   = _dt_nfs[1]   = 0
+                _dragged[0]  = False
+                _refresh_canvas()
+
+            tk.Button(btn_row, text="Save", bg="#c04828", fg="#f0ece4",
+                      font=("Segoe UI", 16, "bold"), relief="flat", padx=28, pady=12,
+                      command=_save).pack(side="left", padx=18)
+            tk.Button(btn_row, text="Back", bg="#28252e", fg="#a09aaa",
+                      font=("Segoe UI", 16), relief="flat", padx=28, pady=12,
+                      command=_back).pack(side="left", padx=18)
+
+        def _try_close():
+            if _asking[0]:
+                return
+            if _dragged[0]:
+                _show_save_dialog()
+            else:
+                _conditional_close(popup)
+
+        # ── Drag handlers ─────────────────────────────────────────────────────
+        def _on_press(e):
+            if _asking[0]:
+                return
+            M  = max(12, sz + 4)
+            sx = init_sx    + _dt_stamp[0]
+            sy = init_ty    + _dt_stamp[1]
+            nx = init_nfs_x + _dt_nfs[0]
+            ny = init_nfs_y + _dt_nfs[1]
+            if sx - M <= e.x <= sx + stamp_w + M and sy - M <= e.y <= sy + sz + M:
+                _act_group[0] = "stamp"
+            elif nx - M <= e.x <= nx + nfs_tw + M and ny - M <= e.y <= ny + sz + M:
+                _act_group[0] = "nfs"
+            else:
+                _act_group[0] = None
+                _try_close()
+            _drag_origin[0] = e.x
+            _drag_origin[1] = e.y
+
+        def _on_motion(e):
+            g = _act_group[0]
+            if g is None:
+                return
+            ddx = e.x - _drag_origin[0]
+            ddy = e.y - _drag_origin[1]
+            if g == "stamp":
+                if ddx != _dt_stamp[0] or ddy != _dt_stamp[1]:
+                    _dt_stamp[0] = ddx
+                    _dt_stamp[1] = ddy
+                    _dragged[0] = True
+                    _refresh_canvas()
+            else:
+                if ddx != _dt_nfs[0] or ddy != _dt_nfs[1]:
+                    _dt_nfs[0] = ddx
+                    _dt_nfs[1] = ddy
+                    _dragged[0] = True
+                    _refresh_canvas()
+
+        def _on_release(e):
+            was_group = _act_group[0]
+            _act_group[0] = None
+            if was_group is not None:
+                # Distinguish click (≤4px) from drag (>4px) for THIS gesture only
+                dx = abs(e.x - _drag_origin[0])
+                dy = abs(e.y - _drag_origin[1])
+                if dx <= 4 and dy <= 4:
+                    _try_close()
+
+        canvas.bind("<ButtonPress-1>",   _on_press)
+        canvas.bind("<B1-Motion>",       _on_motion)
+        canvas.bind("<ButtonRelease-1>", _on_release)
+        popup.bind("<Escape>", lambda e: _try_close())
+
+        # ── Outside-click → Save dialog (widget-hierarchy, DPI-safe) ─────────
+        def _is_in_popup(widget):
+            w = widget
+            while w is not None:
+                if w is popup:
+                    return True
+                w = getattr(w, "master", None)
+            return False
 
         def _activate():
             if popup.winfo_exists():
                 _active[0] = True
 
         def _on_any_click(event):
-            if not _active[0]:
+            if not _active[0] or _asking[0]:
                 return
             if not popup.winfo_exists():
                 _active[0] = False
@@ -745,21 +1049,15 @@ class CardInspectorPanel(ctk.CTkFrame):
             if getattr(self, '_zoom_popup', None) is not popup:
                 _active[0] = False
                 return
-            try:
-                x1 = popup.winfo_rootx()
-                y1 = popup.winfo_rooty()
-                x2 = x1 + popup.winfo_width()
-                y2 = y1 + popup.winfo_height()
-                if not (x1 <= event.x_root <= x2 and y1 <= event.y_root <= y2):
-                    _active[0] = False
-                    _conditional_close(popup)
-            except Exception:
-                _active[0] = False
-                _conditional_close(popup)
+            if _is_in_popup(getattr(event, 'widget', None)):
+                return
+            _active[0] = False
+            _try_close()
 
         self.app.bind_all("<ButtonPress-1>", _on_any_click, add="+")
         self.after(200, _activate)
 
+        # ── Load image — prefer _orig.png (pre-watermark) for clean preview ───
         self._zoom_img_ref = None
 
         def _load():
@@ -769,25 +1067,220 @@ class CardInspectorPanel(ctk.CTkFrame):
                     back = getattr(card, "back_image_path", None)
                     if back and os.path.isfile(back):
                         path = back
+                # Prefer native .png over _1200dpi for speed
                 if path.endswith("_1200dpi.png"):
                     native = path.replace("_1200dpi.png", ".png")
                     if os.path.exists(native):
                         path = native
-                img = Image.open(path).resize((img_w, img_h), Image.LANCZOS)
-                ctk_img = ctk.CTkImage(light_image=img, size=(img_w, img_h))
-                self._zoom_img_ref = ctk_img
-
-                def _apply():
-                    if popup.winfo_exists():
-                        lbl.configure(image=ctk_img, fg_color="transparent")
-                self.after(0, _apply)
-            except Exception:
-                pass
+                # Prefer _orig.png (pre-watermark) so artist name is visible
+                orig = path.replace(".png", "_orig.png")
+                if os.path.exists(orig):
+                    path = orig
+                else:
+                    # _orig.png absent — try to fetch clean image from Scryfall in-memory
+                    card_json = _load_card_meta(card.image_path)
+                    if card_json:
+                        try:
+                            import requests, io as _io
+                            faces = card_json.get("card_faces") or []
+                            if faces and self._show_back and len(faces) > 1:
+                                uris = faces[1].get("image_uris", {})
+                            elif faces:
+                                uris = faces[0].get("image_uris", {})
+                            else:
+                                uris = card_json.get("image_uris", {})
+                            url = uris.get("normal") or uris.get("large")
+                            if url:
+                                resp = requests.get(url, timeout=15,
+                                                    headers={"User-Agent": "OtterForge/1.0"})
+                                if resp.ok:
+                                    img = Image.open(_io.BytesIO(resp.content)).convert("RGB")
+                                    img = img.resize((cv_w, cv_h), Image.LANCZOS)
+                                    # Also save as _orig.png for next time
+                                    try:
+                                        save_path = path.replace(".png", "_orig.png")
+                                        img.save(save_path, "PNG", compress_level=1)
+                                    except Exception:
+                                        pass
+                                    _base_img[0] = img
+                                    self.after(0, _refresh_canvas)
+                                    return
+                        except Exception:
+                            pass  # fall through to watermarked image
+                img = Image.open(path).convert("RGB").resize((cv_w, cv_h), Image.LANCZOS)
+                _base_img[0] = img
+                self.after(0, _refresh_canvas)
+            except Exception as exc:
+                print(f"[zoom popup] load: {exc}")
 
         threading.Thread(target=_load, daemon=True).start()
+
+    # ── Inspector action buttons ──────────────────────────────────────────────
+
+    def _on_clear_cache(self) -> None:
+        card = self._current_card
+        if card is None:
+            return
+        deleted = _delete_card_cache_files(card.image_path)
+        if hasattr(self.app, "workspace"):
+            self.app.workspace._pil_cache.clear()
+        # Reset inspector to placeholder
+        self._img_ref = None
+        self._img_label.configure(image="", fg_color="#221f28")
+        self._placeholder_text.place(in_=self._img_label, relx=0.5, rely=0.5, anchor="center")
+        if hasattr(self.app, "statusbar"):
+            self.app.statusbar.set_status(
+                f"Cache cleared ({deleted} file(s)). Re-search to reapply."
+            )
+
+    def _on_move_watermark(self) -> None:
+        card = self._current_card
+        if card is None:
+            return
+        _WatermarkOffsetDialog(self, card, self.app)
+
+    def _reapply_watermark(self, card) -> None:
+        """Delete cache, re-download from Scryfall, reapply watermark with card.watermark_offset."""
+        if not hasattr(self.app, "scryfall"):
+            return
+        if hasattr(self.app, "statusbar"):
+            self.app.statusbar.set_status("Re-fetching card for watermark reapply…")
+
+        def _worker():
+            try:
+                image_path = card.image_path
+                # Load card_json BEFORE deleting anything
+                card_json = _load_card_meta(image_path)
+                if not card_json:
+                    card_json = self.app.scryfall.get_card(card.name)
+                if not card_json:
+                    self.after(0, self.app.statusbar.set_status,
+                               "Re-fetch failed — check internet connection.")
+                    return
+
+                # Delete all cache variants
+                _delete_card_cache_files(image_path)
+
+                # Re-download native PNG(s)
+                paths = self.app.scryfall.download_all_face_images(card_json)
+                if not paths:
+                    self.after(0, self.app.statusbar.set_status, "Re-download failed.")
+                    return
+
+                # Apply watermark with stored offsets (stamp + NFS independent)
+                offset     = getattr(card, "watermark_offset",     (0, 0))
+                nfs_offset = getattr(card, "watermark_nfs_offset", (0, 0))
+                wm_enabled = getattr(self.app, "_watermark_enabled", False)
+                if wm_enabled and hasattr(self.app, "_watermark"):
+                    for p in paths:
+                        if os.path.exists(p):
+                            self.app._watermark.apply(p, card_json,
+                                                      offset=offset,
+                                                      nfs_offset=nfs_offset)
+
+                # Update card paths to freshly downloaded files
+                card.image_path = paths[0]
+                if len(paths) > 1:
+                    card.back_image_path = paths[1]
+
+                self.after(0, self._on_reapply_done, card)
+
+            except Exception as e:
+                print(f"[Inspector] reapply_watermark error: {e}")
+                self.after(0, self.app.statusbar.set_status, f"Reapply error: {e}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_reapply_done(self, card) -> None:
+        if hasattr(self.app, "workspace"):
+            self.app.workspace._pil_cache.clear()
+        if hasattr(self.app, "statusbar"):
+            self.app.statusbar.set_status("Watermark reapplied.")
+        # Reload inspector image
+        self.show_card(card, show_back=self._show_back)
+        # Reload workspace thumbnails
+        deck = self.app.deck_manager.active_deck()
+        if deck:
+            self.app.workspace.load_cards(deck.cards)
 
     def refresh_stats(self) -> None:
         """À appeler après chaque modification du deck."""
         self._metadata_failed = False  # permet un nouvel essai au changement de deck
         if self._tab == "stats":
             self._build_stats()
+
+
+# ── Watermark offset dialog ───────────────────────────────────────────────────
+
+class _WatermarkOffsetDialog(ctk.CTkToplevel):
+    """Small dialog to adjust the per-card watermark offset (dx, dy in native pixels)."""
+
+    def __init__(self, inspector: "CardInspectorPanel", card, app) -> None:
+        super().__init__(app)
+        self._inspector = inspector
+        self._card = card
+        self._app = app
+
+        self.title("Move Watermark")
+        self.resizable(False, False)
+        self.grab_set()
+        self.lift()
+
+        # Position near the inspector panel
+        self.update_idletasks()
+        px = inspector.winfo_rootx() - 20
+        py = inspector.winfo_rooty() + 60
+        self.geometry(f"260x230+{px}+{py}")
+
+        ox, oy = getattr(card, "watermark_offset", (0, 0))
+
+        ctk.CTkLabel(
+            self, text=f'"{card.name}"',
+            font=ctk.CTkFont(size=10), text_color="#a09aaa",
+            wraplength=240, justify="left",
+        ).pack(padx=16, pady=(14, 6), anchor="w")
+
+        # dx row
+        dx_row = ctk.CTkFrame(self, fg_color="transparent")
+        dx_row.pack(padx=16, pady=(4, 0), fill="x")
+        ctk.CTkLabel(dx_row, text="Horizontal (px):", width=120,
+                     font=ctk.CTkFont(size=11), anchor="w").pack(side="left")
+        self._dx_var = tk.StringVar(value=str(ox))
+        ctk.CTkEntry(dx_row, textvariable=self._dx_var, width=72,
+                     font=ctk.CTkFont(size=11)).pack(side="left")
+
+        # dy row
+        dy_row = ctk.CTkFrame(self, fg_color="transparent")
+        dy_row.pack(padx=16, pady=(8, 0), fill="x")
+        ctk.CTkLabel(dy_row, text="Vertical (px):", width=120,
+                     font=ctk.CTkFont(size=11), anchor="w").pack(side="left")
+        self._dy_var = tk.StringVar(value=str(oy))
+        ctk.CTkEntry(dy_row, textvariable=self._dy_var, width=72,
+                     font=ctk.CTkFont(size=11)).pack(side="left")
+
+        ctk.CTkLabel(
+            self, text="Negative = up/left  ·  Reference: 672px native",
+            font=ctk.CTkFont(size=9), text_color="#6a6478",
+        ).pack(padx=16, pady=(6, 0), anchor="w")
+
+        # Buttons
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(padx=16, pady=(14, 0), fill="x")
+        ctk.CTkButton(btn_row, text="Cancel", width=88, height=28,
+                      fg_color="#28252e", hover_color="#34303e",
+                      command=self.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Apply", width=88, height=28,
+                      fg_color="#c04828", hover_color="#a83820",
+                      command=self._apply).pack(side="right", padx=(0, 8))
+
+    def _apply(self) -> None:
+        try:
+            dx = int(self._dx_var.get())
+            dy = int(self._dy_var.get())
+        except ValueError:
+            return
+        self._card.watermark_offset = (dx, dy)
+        if hasattr(self._app, "_auto_save"):
+            self._app._auto_save()
+        self.destroy()
+        self._inspector._reapply_watermark(self._card)

@@ -38,9 +38,12 @@ class CardSearch(ctk.CTkFrame):
         )
         self.entry.pack(side="left", padx=(0, 8))
         self.entry.bind("<Return>", lambda e: self._on_add())
-        self.entry.bind("<FocusIn>", self._on_entry_focus)
+        self.entry.bind("<FocusIn>",  self._on_entry_focus)
+        self.entry.bind("<Button-1>", lambda e: self.after(10, self._on_entry_focus))
         self.entry.bind("<FocusOut>", lambda e: self.after(150, self._hide_dropdown))
-        self.entry.bind("<Escape>", lambda e: self._hide_dropdown())
+        self.entry.bind("<Escape>",   lambda e: self._hide_dropdown())
+        # Close dropdown on any click outside entry or dropdown (bound once)
+        self.after(200, self._bind_global_click)
 
         self.add_btn = ctk.CTkButton(
             self, text="Add to Deck", width=110, height=30,
@@ -80,17 +83,20 @@ class CardSearch(ctk.CTkFrame):
 
         tw = tk.Toplevel(self.entry)
         tw.wm_overrideredirect(True)
-        tw.wm_geometry(f"{w}x{min(len(self._history), 8) * 26}+{x}+{y}")
-        tw.configure(bg="#221f28")
+        tw.wm_geometry(f"{w}x{min(len(self._history), 8) * 36}+{x}+{y}")
+        tw.configure(bg="#c04828")  # border colour
         self._dropdown = tw
 
+        inner = tk.Frame(tw, bg="#3a3548")
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+
         lb = tk.Listbox(
-            tw,
-            bg="#221f28", fg="#f0ece4",
+            inner,
+            bg="#3a3548", fg="#f0ece4",
             selectbackground="#c04828", selectforeground="#ffffff",
             activestyle="none",
             relief="flat", borderwidth=0,
-            font=("Segoe UI", 11),
+            font=("Segoe UI", 20),
             highlightthickness=0,
         )
         lb.pack(fill="both", expand=True)
@@ -108,6 +114,35 @@ class CardSearch(ctk.CTkFrame):
 
         lb.bind("<ButtonRelease-1>", on_select)
         lb.bind("<Return>", on_select)
+
+    def _bind_global_click(self) -> None:
+        try:
+            self.winfo_toplevel().bind_all("<ButtonPress-1>", self._on_global_click, add="+")
+        except Exception:
+            pass
+
+    def _on_global_click(self, event) -> None:
+        if not self._dropdown:
+            return
+        w = getattr(event, 'widget', None)
+        # Check if click is inside the dropdown window
+        tmp = w
+        while tmp is not None:
+            if tmp is self._dropdown:
+                return
+            tmp = getattr(tmp, 'master', None)
+        # Check if click is inside the entry widget
+        tmp = w
+        entry_widgets: set = {self.entry}
+        try:
+            entry_widgets.add(self.entry._entry)
+        except AttributeError:
+            pass
+        while tmp is not None:
+            if tmp in entry_widgets:
+                return
+            tmp = getattr(tmp, 'master', None)
+        self._hide_dropdown()
 
     def _hide_dropdown(self) -> None:
         if self._dropdown:

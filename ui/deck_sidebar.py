@@ -36,8 +36,8 @@ class _Tooltip:
             background="#3a3548", foreground="#f0ece4",
             relief="solid", borderwidth=1,
             highlightbackground="#c04828", highlightthickness=1,
-            font=("Segoe UI", 10),
-            padx=8, pady=4,
+            font=("Segoe UI", 20),
+            padx=16, pady=10,
         )
         lbl.pack()
 
