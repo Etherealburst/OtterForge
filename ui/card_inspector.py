@@ -380,6 +380,12 @@ class CardInspectorPanel(ctk.CTkFrame):
         except Exception:
             return {}
 
+    def _merge_metadata(self, new_data: dict) -> None:
+        """Main-thread merge — safe from race conditions with _build_stats iterators."""
+        self._metadata_cache.update(new_data)
+        self._save_metadata_cache()
+        self.refresh_stats()
+
     def _save_metadata_cache(self) -> None:
         os.makedirs("cache", exist_ok=True)
         try:
@@ -400,17 +406,17 @@ class CardInspectorPanel(ctk.CTkFrame):
                 timeout=15,
             )
             if resp.ok:
+                new_data = {}
                 for card in resp.json().get("data", []):
                     key = _card_key(card["name"])
                     type_line = card.get("type_line", "")
                     if "card_faces" in card:
                         type_line = card["card_faces"][0].get("type_line", type_line)
-                    self._metadata_cache[key] = {
+                    new_data[key] = {
                         "cmc": int(card.get("cmc") or 0),
                         "types": _parse_types(type_line),
                     }
-                self._save_metadata_cache()
-                self.after(0, self.refresh_stats)
+                self.after(0, self._merge_metadata, new_data)
             else:
                 self._metadata_failed = True
         except Exception as e:
@@ -811,11 +817,16 @@ class CardInspectorPanel(ctk.CTkFrame):
             if getattr(self, '_zoom_popup', None) is not p:
                 return
             try:
+                p.grab_release()
+            except Exception:
+                pass
+            try:
                 if p.winfo_exists():
                     p.destroy()
             except Exception:
                 pass
             self._zoom_popup = None
+            _base_img[0] = None  # libère l'image PIL de la closure
 
         canvas = tk.Canvas(popup, width=cv_w, height=cv_h,
                            bg="#1c1a20", highlightthickness=0, cursor="fleur")
@@ -889,7 +900,6 @@ class CardInspectorPanel(ctk.CTkFrame):
         _dt_nfs      = [0, 0]
         _dragged     = [False]
         _asking      = [False]
-        _active      = [False]
 
         def _refresh_canvas():
             if _base_img[0] is None:
@@ -937,6 +947,8 @@ class CardInspectorPanel(ctk.CTkFrame):
             def _save():
                 overlay.destroy()
                 _asking[0] = False
+                # Scale drag delta (cv_w/cv_h space) back to 672×936 reference space.
+                # cv_w is always >= 300 (enforced above), so minimum resolution is ~2px.
                 card.watermark_offset = (
                     cur_ox + round(_dt_stamp[0] * 672 / cv_w),
                     cur_oy + round(_dt_stamp[1] * 936 / cv_h),
@@ -1027,35 +1039,18 @@ class CardInspectorPanel(ctk.CTkFrame):
         canvas.bind("<ButtonRelease-1>", _on_release)
         popup.bind("<Escape>", lambda e: _try_close())
 
-        # ── Outside-click → Save dialog (widget-hierarchy, DPI-safe) ─────────
-        def _is_in_popup(widget):
-            w = widget
-            while w is not None:
-                if w is popup:
-                    return True
-                w = getattr(w, "master", None)
-            return False
+        # ── Outside-click via grab_set ────────────────────────────────────────
+        # grab_set() redirects ALL pointer events to this popup.
+        # Clicks outside the popup bounds have negative or out-of-range coords.
+        def _on_popup_press(event):
+            if _asking[0]:
+                return
+            outside = not (0 <= event.x <= cv_w and 0 <= event.y <= cv_h)
+            if outside:
+                _try_close()
 
-        def _activate():
-            if popup.winfo_exists():
-                _active[0] = True
-
-        def _on_any_click(event):
-            if not _active[0] or _asking[0]:
-                return
-            if not popup.winfo_exists():
-                _active[0] = False
-                return
-            if getattr(self, '_zoom_popup', None) is not popup:
-                _active[0] = False
-                return
-            if _is_in_popup(getattr(event, 'widget', None)):
-                return
-            _active[0] = False
-            _try_close()
-
-        self.app.bind_all("<ButtonPress-1>", _on_any_click, add="+")
-        self.after(200, _activate)
+        popup.grab_set()
+        popup.bind("<ButtonPress-1>", _on_popup_press, add="+")
 
         # ── Load image — prefer _orig.png (pre-watermark) for clean preview ───
         self._zoom_img_ref = None
@@ -1099,7 +1094,7 @@ class CardInspectorPanel(ctk.CTkFrame):
                                     # Also save as _orig.png for next time
                                     try:
                                         save_path = path.replace(".png", "_orig.png")
-                                        img.save(save_path, "PNG", compress_level=1)
+                                        img.save(save_path, "PNG", compress_level=6)
                                     except Exception:
                                         pass
                                     _base_img[0] = img

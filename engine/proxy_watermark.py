@@ -171,7 +171,7 @@ class ProxyWatermark:
         strip_h = max(14, int(h * _STRIP_RATIO)) - 9
         y_top   = h - strip_h
 
-        stamp = self._stamp(card_json)
+        stamp = self._stamp()
         if not stamp:
             return
 
@@ -220,5 +220,5 @@ class ProxyWatermark:
         _outlined_text(draw, (stamp_x, stamp_ty), stamp, font, epaisseur=1)
         _outlined_text(draw, (nfs_x,   nfs_ty),   nfs,   font, epaisseur=1)
 
-    def _stamp(self, card_json: dict | None) -> str:
+    def _stamp(self) -> str:
         return "OtterForge Proxy"

@@ -116,8 +116,11 @@ class CardSearch(ctk.CTkFrame):
         lb.bind("<Return>", on_select)
 
     def _bind_global_click(self) -> None:
+        if getattr(self, "_global_click_bound", False):
+            return
         try:
             self.winfo_toplevel().bind_all("<ButtonPress-1>", self._on_global_click, add="+")
+            self._global_click_bound = True
         except Exception:
             pass
 

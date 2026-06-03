@@ -4,6 +4,19 @@ All notable changes to OtterForge are documented here.
 
 ---
 
+## [v1.5.1] — 2026-06-03
+
+### Fixed
+- **Outside-click detection in zoom popup** — replaced unreliable `bind_all` approach (broken on Windows when widgets interrupt the event chain) with `popup.grab_set()` + coordinate check; outside clicks now reliably show the Save/Back dialog after dragging
+- **Stats panel race condition** — `_fetch_metadata` no longer writes directly to `_metadata_cache` from a background thread; data is accumulated locally then merged on the main thread via `_merge_metadata`, preventing `RuntimeError: dictionary changed size during iteration`
+- **Search dropdown idempotence** — `_bind_global_click` guard prevents double-registration if widget is recreated
+
+### Improved
+- **`_orig.png` compression** — Scryfall fallback image now saved at `compress_level=6` (consistent with `proxy_watermark.py`)
+- **Code cleanup** — removed dead `card_json` parameter from `ProxyWatermark._stamp()`
+
+---
+
 ## [v1.5.0] — 2026-06-03
 
 ### Added
