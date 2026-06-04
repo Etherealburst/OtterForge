@@ -1195,55 +1195,247 @@ class OtterForgeApp(_AppBase):
     # IMAGES CUSTOM (locale)
     # ======================================================================
 
+    def open_card_creator(self) -> None:
+        """Ouvre le Card Creator (formulaire complet + preview live)."""
+        from ui.card_creator_panel import CardCreatorPanel
+        CardCreatorPanel(self)
+
+    def open_full_custom_dialog(self) -> None:
+        """Ouvre le dialog de création de carte 100% custom."""
+        _FullCustomDialog(self, upscaler=self.upscaler)
+
+    def _full_custom_worker(self, artwork_path: str, card_name: str,
+                            color: str, layout: str, mana_cost: str,
+                            type_line: str, rules_text: str,
+                            pt: str, upscale: bool) -> None:
+        """Thread: crée une carte 100% custom avec FrameBuilder (pas de Scryfall template)."""
+        from engine.frame_builder import render_card
+        try:
+            # Download MTG fonts on first use (background, non-blocking for card gen)
+            try:
+                from engine.font_manager import prefetch_all as _pf
+                import threading as _t
+                _t.Thread(target=_pf, daemon=True).start()
+            except Exception:
+                pass
+            custom_cache = os.path.join(BASE_DIR, "cache", "custom")
+            os.makedirs(custom_cache, exist_ok=True)
+
+            safe = card_name
+            for ch in r'\/:*?"<>|':
+                safe = safe.replace(ch, "-")
+            safe = safe.strip().replace(" ", "_")[:40]
+            forged_path = os.path.join(custom_cache, f"{safe}_forged.png")
+
+            self.after(0, self.statusbar.set_status, f"Génération du frame: {card_name}…")
+            final_path = render_card(
+                art_path   = artwork_path,
+                name       = card_name,
+                mana_cost  = mana_cost,
+                type_line  = type_line,
+                rules_text = rules_text,
+                pt         = pt,
+                color      = color,
+                layout     = layout,
+                output_path= forged_path,
+            )
+
+            if upscale and self.upscaler.is_available():
+                self.after(0, self.statusbar.set_status, f"Upscaling: {card_name}…")
+                upscaled = os.path.join(custom_cache, f"{safe}_forged_1200dpi.png")
+                try:
+                    final_path = self.upscaler.upscale_to_1200dpi(final_path, upscaled)
+                except Exception as e:
+                    print(f"[App] Forge upscale failed: {e}")
+
+            if self._watermark_enabled:
+                self._watermark.apply(final_path)
+
+            self.after(0, self._add_custom_card, card_name, os.path.normpath(final_path))
+        except Exception as e:
+            print(f"[App] Full custom worker error: {e}")
+            self.after(0, self.statusbar.hide_progress)
+            self.after(0, self.statusbar.set_status, f"Erreur forge: {e}")
+
     def add_custom_image_dialog(self) -> None:
-        """Ouvre un sélecteur de fichier pour ajouter une image locale comme carte custom."""
-        from tkinter import filedialog
-        path = filedialog.askopenfilename(
-            title="Choose a custom card image",
+        """Ouvre un sélecteur de fichier(s) pour ajouter une ou plusieurs images custom."""
+        paths = filedialog.askopenfilenames(
+            title="Choose custom card image(s)",
             filetypes=[
                 ("Images", "*.png *.jpg *.jpeg *.webp"),
                 ("All files", "*.*"),
             ],
         )
-        if path:
-            self.add_custom_image(path)
+        if not paths:
+            return
+        if len(paths) == 1:
+            self.add_custom_image(paths[0])
+        else:
+            self._add_custom_images_batch(list(paths))
 
     def add_custom_image(self, path: str) -> None:
-        """Crée une carte custom depuis un fichier image local et l'ajoute au deck actif.
-
-        Behaviour depends on self._artwork_mode (Settings → Custom Artwork):
-          name_only      — use image as-is, just ask for name
-          fetch_metadata — ask for name, fetch Scryfall metadata, apply watermark on a copy
-          frame_overlay  — ask for name, overlay artwork on Scryfall card frame, apply watermark
-        """
+        """Crée une carte custom depuis un fichier image local et l'ajoute au deck actif."""
         mode = self._artwork_mode
-
-        dialog = ctk.CTkInputDialog(
-            text=f"Card name:\n{os.path.basename(path)}",
-            title="Custom image",
+        _CustomNameDialog(
+            self, os.path.basename(path),
+            upscaler=self.upscaler,
+            callback=lambda n, up: self._add_custom_image_named(path, n, mode, up),
         )
-        name = dialog.get_input()
-        if not name or not name.strip():
-            return
-        name = name.strip()
 
+    def _add_custom_image_named(self, path: str, name: str, mode: str,
+                                upscale: bool = False) -> None:
+        """Appelé après la saisie du nom dans le dialog custom."""
+        if not name:
+            return
         if mode == "name_only":
-            final_path = os.path.normpath(path)
+            if upscale and self.upscaler.is_available():
+                self.statusbar.show_indeterminate(f"Upscaling: {name}…")
+                threading.Thread(
+                    target=self._custom_name_only_worker,
+                    args=(path, name),
+                    daemon=True,
+                ).start()
+            else:
+                self._add_custom_card(name, os.path.normpath(path))
         else:
-            # Modes that need Scryfall — do the work in a thread to avoid freezing
             self.statusbar.set_status(f"Fetching card data for {name!r}…")
             self.statusbar.show_indeterminate(f"Fetching: {name}…")
             threading.Thread(
                 target=self._custom_image_worker,
-                args=(path, name, mode),
+                args=(path, name, mode, upscale),
                 daemon=True,
             ).start()
-            return
 
-        self._add_custom_card(name, final_path)
+    def _custom_name_only_worker(self, orig_path: str, card_name: str) -> None:
+        """Thread: copie en cache + upscale Real-ESRGAN pour le mode name_only."""
+        import shutil
+        try:
+            custom_cache = os.path.join(BASE_DIR, "cache", "custom")
+            os.makedirs(custom_cache, exist_ok=True)
+            safe = card_name
+            for ch in r'\/:*?"<>|':
+                safe = safe.replace(ch, "-")
+            safe = safe.strip().replace(" ", "_")[:40]
 
-    def _custom_image_worker(self, orig_path: str, card_name: str, mode: str) -> None:
-        """Thread: fetch Scryfall data and process custom artwork."""
+            base_path = os.path.join(custom_cache, f"{safe}_custom.png")
+            shutil.copy2(orig_path, base_path)
+
+            self.after(0, self.statusbar.set_status, f"Upscaling: {card_name}…")
+            upscaled_path = os.path.join(custom_cache, f"{safe}_custom_1200dpi.png")
+            try:
+                final_path = self.upscaler.upscale_to_1200dpi(base_path, upscaled_path)
+            except Exception as e:
+                print(f"[App] Upscale failed for {card_name!r}: {e} — using original")
+                final_path = base_path
+
+            if self._watermark_enabled:
+                self._watermark.apply(final_path)
+
+            self.after(0, self._add_custom_card, card_name, os.path.normpath(final_path))
+        except Exception as e:
+            print(f"[App] Custom name-only worker error: {e}")
+            self.after(0, self.statusbar.hide_progress)
+            self.after(0, self.statusbar.set_status, f"Error: {e}")
+
+    def _add_custom_images_batch(self, paths: list) -> None:
+        """Ouvre le dialog de confirmation pour un import en lot."""
+        _CustomBatchDialog(
+            self, paths, upscaler=self.upscaler,
+            callback=lambda up: self._start_batch_worker(paths, up),
+        )
+
+    def _start_batch_worker(self, paths: list, upscale: bool) -> None:
+        mode = self._artwork_mode
+        self.statusbar.show_indeterminate(f"Import lot: 0/{len(paths)}…")
+        threading.Thread(
+            target=self._custom_batch_worker,
+            args=(paths, mode, upscale),
+            daemon=True,
+        ).start()
+
+    def _custom_batch_worker(self, paths: list, mode: str, upscale: bool) -> None:
+        """Thread: traite une liste d'images customs en lot."""
+        import shutil
+        custom_cache = os.path.join(BASE_DIR, "cache", "custom")
+        os.makedirs(custom_cache, exist_ok=True)
+        results, skipped = [], []
+
+        for i, path in enumerate(paths):
+            card_name = os.path.splitext(os.path.basename(path))[0]
+            self.after(0, self.statusbar.set_status,
+                       f"Import lot {i+1}/{len(paths)}: {card_name}…")
+            try:
+                safe = card_name
+                for ch in r'\/:*?"<>|':
+                    safe = safe.replace(ch, "-")
+                safe = safe.strip().replace(" ", "_")[:40]
+
+                card_json = None
+                if mode in ("frame_overlay", "fetch_metadata"):
+                    card_json = self.scryfall.get_card(card_name)
+
+                ext = os.path.splitext(path)[1] or ".png"
+                if mode == "frame_overlay" and card_json:
+                    frame_path = self.scryfall.download_image(card_json, folder=custom_cache)
+                    if frame_path:
+                        overlay_out = os.path.join(custom_cache, f"{safe}_overlay.png")
+                        final_path = self._overlay_artwork_on_frame(path, frame_path, overlay_out)
+                    else:
+                        final_path = os.path.join(custom_cache, f"{safe}_custom{ext}")
+                        shutil.copy2(path, final_path)
+                elif mode == "fetch_metadata" and card_json:
+                    final_path = os.path.join(custom_cache, f"{safe}_custom{ext}")
+                    shutil.copy2(path, final_path)
+                else:
+                    final_path = os.path.join(custom_cache, f"{safe}_custom{ext}")
+                    shutil.copy2(path, final_path)
+                    card_json = None
+
+                if upscale and self.upscaler.is_available():
+                    base = os.path.splitext(final_path)[0]
+                    upscaled = base + "_1200dpi.png"
+                    self.after(0, self.statusbar.set_status,
+                               f"Upscaling {i+1}/{len(paths)}: {card_name}…")
+                    try:
+                        final_path = self.upscaler.upscale_to_1200dpi(final_path, upscaled)
+                    except Exception as e:
+                        print(f"[App] Batch upscale failed for {card_name!r}: {e}")
+
+                if self._watermark_enabled:
+                    self._watermark.apply(final_path, card_json)
+
+                results.append({
+                    "name": card_name,
+                    "image_path": os.path.normpath(final_path),
+                    "count": 1,
+                })
+            except Exception as e:
+                print(f"[App] Batch error for {card_name!r}: {e}")
+                skipped.append(card_name)
+
+        self.after(0, self._on_batch_custom_complete, results, skipped)
+
+    def _on_batch_custom_complete(self, cards: list, skipped: list) -> None:
+        self.statusbar.hide_progress()
+        if cards:
+            self._push_undo_snapshot()
+            self.deck_manager.add_cards_bulk(cards)
+            deck = self.deck_manager.active_deck()
+            if deck:
+                self.workspace.load_cards(deck.cards)
+            if hasattr(self, "deck_sidebar"):
+                self.deck_sidebar.refresh()
+        msg = f"{len(cards)} image(s) importée(s)."
+        if skipped:
+            names = ", ".join(skipped[:3])
+            msg += f" {len(skipped)} ignorée(s): {names}"
+            if len(skipped) > 3:
+                msg += f" (+{len(skipped) - 3})"
+        self.statusbar.set_status(msg)
+
+    def _custom_image_worker(self, orig_path: str, card_name: str, mode: str,
+                             upscale: bool = False) -> None:
+        """Thread: fetch Scryfall data, process custom artwork, optionally upscale."""
         import shutil
         try:
             custom_cache = os.path.join(BASE_DIR, "cache", "custom")
@@ -1270,9 +1462,18 @@ class OtterForgeApp(_AppBase):
                     final_path = os.path.join(custom_cache, f"{safe}_custom{ext}")
                     shutil.copy2(orig_path, final_path)
             else:
-                # fetch_metadata: copy to cache and apply watermark
                 final_path = os.path.join(custom_cache, f"{safe}_custom{ext}")
                 shutil.copy2(orig_path, final_path)
+
+            # Optionally upscale via Real-ESRGAN before watermarking
+            if upscale and self.upscaler.is_available():
+                self.after(0, self.statusbar.set_status, f"Upscaling: {card_name}…")
+                base = os.path.splitext(final_path)[0]
+                upscaled_path = base + "_1200dpi.png"
+                try:
+                    final_path = self.upscaler.upscale_to_1200dpi(final_path, upscaled_path)
+                except Exception as e:
+                    print(f"[App] Upscale failed for {card_name!r}: {e} — using processed image")
 
             if self._watermark_enabled:
                 self._watermark.apply(final_path, card_json)
@@ -1304,14 +1505,15 @@ class OtterForgeApp(_AppBase):
             box_w = ax1 - ax0
             box_h = ay1 - ay0
 
-            scale = min(box_w / art.width, box_h / art.height)
+            # Scale-to-cover: artwork fills the entire art box (cropped at edges, not letterboxed)
+            scale = max(box_w / art.width, box_h / art.height)
             new_w = round(art.width  * scale)
             new_h = round(art.height * scale)
             art_resized = art.resize((new_w, new_h), _Image.LANCZOS)
-
-            x_off = ax0 + (box_w - new_w) // 2
-            y_off = ay0 + (box_h - new_h) // 2
-            frame.paste(art_resized, (x_off, y_off))
+            crop_x = (new_w - box_w) // 2
+            crop_y = (new_h - box_h) // 2
+            art_cropped = art_resized.crop((crop_x, crop_y, crop_x + box_w, crop_y + box_h))
+            frame.paste(art_cropped, (ax0, ay0))
             frame.save(output_path, "PNG", compress_level=9, optimize=True)
             print(f"[App] Frame overlay saved → {output_path}")
             return output_path
@@ -1516,3 +1718,504 @@ class OtterForgeApp(_AppBase):
                 json.dump(self._user_config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"[App] Impossible de sauvegarder config_user.json : {e}")
+
+
+# ── Custom image name dialog ───────────────────────────────────────────────────
+
+# ── Custom text overlay helper ────────────────────────────────────────────────
+
+def _apply_custom_overlays(image_path: str, card_name: str,
+                           type_line: str, pt: str) -> None:
+    """Overlay custom name, type line, and P/T text on a card image in-place.
+
+    Positions are expressed as fractions of the card dimensions so they work
+    on any Scryfall image size (typically 745×1040 px).
+    """
+    from PIL import Image as _Image, ImageDraw as _Draw
+    from engine.proxy_watermark import _load_font, _outlined_text
+
+    try:
+        img = _Image.open(image_path).convert("RGB")
+    except Exception as e:
+        print(f"[ForgeOverlay] Cannot open {image_path!r}: {e}")
+        return
+
+    w, h = img.size
+    draw = _Draw.Draw(img)
+
+    # ── Card name bar ──────────────────────────────────────────────────────
+    if card_name:
+        nx0, ny0 = int(w * 0.051), int(h * 0.038)
+        ny1 = int(h * 0.075)
+        bar_h = max(1, ny1 - ny0)
+        font_sz = max(10, int(bar_h * 0.72))
+        font = _load_font(font_sz)
+        try:
+            bb = font.getbbox(card_name)
+            ty = ny0 + (bar_h - (bb[3] - bb[1])) // 2 - bb[1]
+        except Exception:
+            ty = ny0 + 2
+        _outlined_text(draw, (nx0 + 6, ty), card_name, font,
+                       fill=(255, 255, 255), outline=(0, 0, 0), epaisseur=2)
+
+    # ── Type line bar ──────────────────────────────────────────────────────
+    if type_line:
+        tx0, ty0 = int(w * 0.051), int(h * 0.535)
+        ty1 = int(h * 0.564)
+        bar_h = max(1, ty1 - ty0)
+        font_sz = max(8, int(bar_h * 0.65))
+        font = _load_font(font_sz)
+        try:
+            bb = font.getbbox(type_line)
+            text_y = ty0 + (bar_h - (bb[3] - bb[1])) // 2 - bb[1]
+        except Exception:
+            text_y = ty0 + 2
+        _outlined_text(draw, (tx0 + 6, text_y), type_line, font,
+                       fill=(255, 255, 255), outline=(0, 0, 0), epaisseur=2)
+
+    # ── P/T box ────────────────────────────────────────────────────────────
+    if pt:
+        pcx, pcy = int(w * 0.893), int(h * 0.850)
+        font_sz = max(9, int(h * 0.026))
+        font = _load_font(font_sz)
+        try:
+            bb = font.getbbox(pt)
+            px = pcx - (bb[2]-bb[0]) // 2 - bb[0]
+            py = pcy - (bb[3]-bb[1]) // 2 - bb[1]
+        except Exception:
+            px, py = pcx - len(pt)*font_sz//3, pcy - font_sz//2
+        _outlined_text(draw, (px, py), pt, font,
+                       fill=(255, 255, 255), outline=(0, 0, 0), epaisseur=2)
+
+    img.save(image_path, "PNG", compress_level=6)
+    print(f"[ForgeOverlay] Applied overlays → {os.path.basename(image_path)}")
+
+
+# ── Dialogs custom ────────────────────────────────────────────────────────────
+
+class _CustomBatchDialog(ctk.CTkToplevel):
+    """Confirmation dialog for batch custom image import."""
+
+    def __init__(self, app, paths: list, callback, upscaler=None) -> None:
+        super().__init__(app)
+        self._callback = callback
+        self._upscaler_available = upscaler is not None and upscaler.is_available()
+
+        self.title("Import lot d'images")
+        self.resizable(False, False)
+        self.grab_set()
+        self.lift()
+
+        h = 290 if self._upscaler_available else 250
+        self.update_idletasks()
+        try:
+            from customtkinter import ScalingTracker as _ST
+            _scale = _ST.get_window_scaling(app)
+        except Exception:
+            _scale = 1.0
+        _pw = round(380 * _scale)
+        _ph = round(h   * _scale)
+        px = app.winfo_rootx() + (app.winfo_width()  - _pw) // 2
+        py = app.winfo_rooty() + (app.winfo_height() - _ph) // 2
+        self.geometry(f"380x{h}+{px}+{py}")
+
+        ctk.CTkLabel(
+            self, text=f"{len(paths)} image(s) sélectionnée(s)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#f0ece4",
+        ).pack(padx=16, pady=(14, 6), anchor="w")
+
+        preview_lines = []
+        for p in paths[:5]:
+            preview_lines.append(f"  {os.path.splitext(os.path.basename(p))[0]}")
+        if len(paths) > 5:
+            preview_lines.append(f"  … et {len(paths) - 5} autre(s)")
+        ctk.CTkLabel(
+            self, text="\n".join(preview_lines),
+            font=ctk.CTkFont(size=10), text_color="#a09aaa",
+            justify="left", anchor="w",
+        ).pack(padx=16, fill="x")
+
+        ctk.CTkLabel(
+            self,
+            text="Le nom de chaque fichier sera utilisé comme nom de carte.",
+            font=ctk.CTkFont(size=9), text_color="#6a6478",
+            wraplength=348, justify="left",
+        ).pack(padx=16, pady=(8, 0), anchor="w")
+
+        self._upscale_var = ctk.BooleanVar(value=False)
+        if self._upscaler_available:
+            ctk.CTkCheckBox(
+                self,
+                text="Upscaler avec Real-ESRGAN  (×4 — 1200 DPI)",
+                variable=self._upscale_var,
+                font=ctk.CTkFont(size=11),
+                checkbox_width=18, checkbox_height=18,
+            ).pack(padx=16, pady=(10, 0), anchor="w")
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(padx=16, pady=(14, 0), fill="x")
+        ctk.CTkButton(btn_row, text="Annuler", width=88, height=28,
+                      fg_color="#28252e", hover_color="#34303e",
+                      command=self.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Importer", width=100, height=28,
+                      fg_color="#c04828", hover_color="#a83820",
+                      command=self._apply).pack(side="right", padx=(0, 8))
+
+    def _apply(self) -> None:
+        upscale = self._upscale_var.get()
+        self.destroy()
+        self._callback(upscale)
+
+
+class _CustomNameDialog(ctk.CTkToplevel):
+    """Styled dialog to enter a card name (and optionally upscale) for custom image import."""
+
+    def __init__(self, app, filename: str, callback, upscaler=None) -> None:
+        super().__init__(app)
+        self._callback = callback
+        self._upscaler_available = upscaler is not None and upscaler.is_available()
+
+        self.title("Custom image")
+        self.resizable(False, False)
+        self.grab_set()
+        self.lift()
+
+        h = 250 if self._upscaler_available else 205
+        self.update_idletasks()
+        try:
+            from customtkinter import ScalingTracker as _ST
+            _scale = _ST.get_window_scaling(app)
+        except Exception:
+            _scale = 1.0
+        _pw = round(350 * _scale)
+        _ph = round(h   * _scale)
+        px = app.winfo_rootx() + (app.winfo_width()  - _pw) // 2
+        py = app.winfo_rooty() + (app.winfo_height() - _ph) // 2
+        self.geometry(f"350x{h}+{px}+{py}")
+
+        ctk.CTkLabel(
+            self, text=filename,
+            font=ctk.CTkFont(size=9), text_color="#a09aaa",
+            wraplength=318, justify="left",
+        ).pack(padx=16, pady=(14, 6), anchor="w")
+
+        ctk.CTkLabel(
+            self, text="Nom de la carte :",
+            font=ctk.CTkFont(size=11), anchor="w",
+        ).pack(padx=16, fill="x")
+
+        self._entry = ctk.CTkEntry(self, width=318, font=ctk.CTkFont(size=12))
+        self._entry.pack(padx=16, pady=(4, 0))
+        self._entry.focus_set()
+        self._entry.bind("<Return>", lambda e: self._apply())
+
+        self._upscale_var = ctk.BooleanVar(value=False)
+        if self._upscaler_available:
+            ctk.CTkCheckBox(
+                self,
+                text="Upscaler avec Real-ESRGAN  (×4 — 1200 DPI)",
+                variable=self._upscale_var,
+                font=ctk.CTkFont(size=11),
+                checkbox_width=18, checkbox_height=18,
+            ).pack(padx=16, pady=(10, 0), anchor="w")
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(padx=16, pady=(12, 0), fill="x")
+        ctk.CTkButton(btn_row, text="Annuler", width=88, height=28,
+                      fg_color="#28252e", hover_color="#34303e",
+                      command=self.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Ajouter", width=88, height=28,
+                      fg_color="#c04828", hover_color="#a83820",
+                      command=self._apply).pack(side="right", padx=(0, 8))
+
+    def _apply(self) -> None:
+        name   = self._entry.get().strip()
+        upscale = self._upscale_var.get()
+        self.destroy()
+        self._callback(name, upscale)
+
+
+class _FullCustomDialog(ctk.CTkToplevel):
+    """Dialog for creating a fully custom proxy card via FrameBuilder (no Scryfall template)."""
+
+    def __init__(self, app, upscaler=None) -> None:
+        super().__init__(app)
+        self._app = app
+        self._upscaler_available = upscaler is not None and upscaler.is_available()
+        self._artwork_path = ""
+
+        self.title("+Forge — Carte custom")
+        self.resizable(False, True)
+        self.grab_set()
+        self.lift()
+
+        W = 520
+        h = 665 if self._upscaler_available else 630
+        self.update_idletasks()
+        try:
+            from customtkinter import ScalingTracker as _ST
+            _scale = _ST.get_window_scaling(app)
+        except Exception:
+            _scale = 1.0
+        _pw = round(W * _scale)
+        _ph = round(h * _scale)
+        px = app.winfo_rootx() + (app.winfo_width()  - _pw) // 2
+        py = app.winfo_rooty() + (app.winfo_height() - _ph) // 2
+        self.geometry(f"{W}x{h}+{px}+{py}")
+
+        # ── Scrollable content area ───────────────────────────────────────────
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=0, pady=(0, 0))
+
+        # Restore scroll wheel on Windows
+        def _focus_scroll(e=None):
+            for attr in ("_parent_canvas", "_canvas"):
+                w = getattr(scroll, attr, None)
+                if w:
+                    w.focus_set()
+                    break
+        scroll.bind("<Enter>", _focus_scroll, add="+")
+
+        PAD = 16
+
+        def _lbl(parent, text, size=11, color="#f0ece4"):
+            ctk.CTkLabel(parent, text=text, font=ctk.CTkFont(size=size),
+                         text_color=color, anchor="w").pack(
+                padx=PAD, pady=(10, 2), fill="x")
+
+        def _entry(parent, width=None):
+            v = ctk.StringVar()
+            e = ctk.CTkEntry(parent, textvariable=v,
+                             width=width or (W - PAD * 2),
+                             font=ctk.CTkFont(size=11))
+            e.pack(padx=PAD, fill="x" if width is None else None,
+                   anchor="w" if width else None)
+            return v, e
+
+        # ── Artwork ───────────────────────────────────────────────────────────
+        _lbl(scroll, "Artwork * :")
+        art_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        art_row.pack(padx=PAD, fill="x")
+        self._art_var = ctk.StringVar(value="Aucun fichier sélectionné")
+        ctk.CTkEntry(art_row, textvariable=self._art_var, state="disabled",
+                     width=320, font=ctk.CTkFont(size=10)).pack(side="left")
+        ctk.CTkButton(art_row, text="Browse…", width=88, height=28,
+                      fg_color="#28252e", hover_color="#3a3548",
+                      command=self._browse_artwork).pack(side="left", padx=(6, 0))
+
+        # ── Nom ───────────────────────────────────────────────────────────────
+        _lbl(scroll, "Nom de la carte * :")
+        self._name_var, self._name_entry = _entry(scroll)
+        self._name_entry.focus_set()
+
+        # ── Couleur du frame ──────────────────────────────────────────────────
+        _lbl(scroll, "Couleur du frame :")
+        from engine.frame_builder import COLOR_LABELS
+        color_options = list(COLOR_LABELS.values())
+        self._color_var = ctk.StringVar(value=color_options[0])
+        ctk.CTkOptionMenu(
+            scroll, variable=self._color_var,
+            values=color_options,
+            width=W - PAD * 2, height=30,
+            font=ctk.CTkFont(size=11),
+            fg_color="#28252e", button_color="#3a3548",
+        ).pack(padx=PAD, fill="x")
+
+        # ── Style de carte ────────────────────────────────────────────────────
+        _lbl(scroll, "Style de carte :")
+        from engine.frame_builder import LAYOUT_LABELS
+        layout_options = list(LAYOUT_LABELS.values())
+        self._layout_var = ctk.StringVar(value=layout_options[0])
+        ctk.CTkOptionMenu(
+            scroll, variable=self._layout_var,
+            values=layout_options,
+            width=W - PAD * 2, height=30,
+            font=ctk.CTkFont(size=11),
+            fg_color="#28252e", button_color="#3a3548",
+        ).pack(padx=PAD, fill="x")
+        ctk.CTkLabel(scroll,
+                     text="Borderless : artwork plein cadre  |  Art étendu : artwork couvre la zone art+bordures  |  Règles transp. : fond texte invisible",
+                     font=ctk.CTkFont(size=9), text_color="#6a6478",
+                     wraplength=W - PAD * 2, justify="left",
+                     anchor="w").pack(padx=PAD, fill="x")
+
+        # ── Coût de mana ──────────────────────────────────────────────────────
+        _lbl(scroll, "Coût de mana (optionnel) :")
+        mana_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        mana_row.pack(padx=PAD, fill="x")
+        self._mana_var = ctk.StringVar()
+        ctk.CTkEntry(mana_row, textvariable=self._mana_var,
+                     width=200, font=ctk.CTkFont(size=13),
+                     placeholder_text="{2}{W}{W}").pack(side="left")
+
+        # Légende — fond encadré pour être visible
+        mana_hint = ctk.CTkFrame(scroll, fg_color="#211e28",
+                                 border_color="#3a3548", border_width=1,
+                                 corner_radius=6)
+        mana_hint.pack(padx=PAD, pady=(4, 0), fill="x")
+        ctk.CTkLabel(mana_hint,
+                     text="Couleurs  :  W  U  B  R  G",
+                     font=ctk.CTkFont(size=11), text_color="#c4bfb8",
+                     anchor="w").pack(padx=10, pady=(8, 2), fill="x")
+        ctk.CTkLabel(mana_hint,
+                     text="Générique :  0  1  2  3  4  5  6  7  8  …  15",
+                     font=ctk.CTkFont(size=11), text_color="#c4bfb8",
+                     anchor="w").pack(padx=10, pady=(0, 2), fill="x")
+        ctk.CTkLabel(mana_hint,
+                     text="Spéciaux  :  X  C  T (tour)  S (neige)  P (phyrexian)",
+                     font=ctk.CTkFont(size=11), text_color="#c4bfb8",
+                     anchor="w").pack(padx=10, pady=(0, 2), fill="x")
+        ctk.CTkLabel(mana_hint,
+                     text="Format    :  {2}{W}{W}  ou  2WW  (les {} sont optionnels)",
+                     font=ctk.CTkFont(size=11), text_color="#a09aaa",
+                     anchor="w").pack(padx=10, pady=(0, 8), fill="x")
+
+        # ── Type line ─────────────────────────────────────────────────────────
+        _lbl(scroll, "Type line (optionnel) :")
+        self._type_var, _ = _entry(scroll)
+        ctk.CTkLabel(scroll, text="ex : Legendary Creature — Human Wizard",
+                     font=ctk.CTkFont(size=9), text_color="#6a6478",
+                     anchor="w").pack(padx=PAD, fill="x")
+
+        # ── Texte de règles ───────────────────────────────────────────────────
+        _lbl(scroll, "Texte de règles (optionnel) :")
+        self._rules_textbox = ctk.CTkTextbox(
+            scroll, width=W - PAD * 2, height=110,
+            font=ctk.CTkFont(size=11),
+            fg_color="#1c1a20", border_color="#34303e", border_width=1,
+        )
+        self._rules_textbox.pack(padx=PAD, fill="x")
+        ctk.CTkLabel(scroll,
+                     text="Symboles inline : {W} {U} {B} {R} {G} {T} {X} — Saut de ligne : Entrée",
+                     font=ctk.CTkFont(size=9), text_color="#6a6478",
+                     anchor="w").pack(padx=PAD, fill="x")
+
+        # ── P/T ───────────────────────────────────────────────────────────────
+        _lbl(scroll, "Puissance / Endurance (optionnel) :")
+        pt_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        pt_row.pack(padx=PAD, fill="x")
+        self._pt_var = ctk.StringVar()
+        ctk.CTkEntry(pt_row, textvariable=self._pt_var, width=110,
+                     font=ctk.CTkFont(size=11),
+                     placeholder_text="ex : 4/4").pack(side="left")
+        ctk.CTkLabel(pt_row, text="  (vide = non-créature)",
+                     font=ctk.CTkFont(size=9), text_color="#6a6478").pack(side="left")
+
+        # ── Polices MTG ───────────────────────────────────────────────────────
+        font_row = ctk.CTkFrame(scroll, fg_color="#211e28",
+                                border_color="#3a3548", border_width=1,
+                                corner_radius=6)
+        font_row.pack(padx=PAD, pady=(8, 0), fill="x")
+        self._font_status = ctk.CTkLabel(
+            font_row, text="Polices MTG : vérification…",
+            font=ctk.CTkFont(size=10), text_color="#a09aaa", anchor="w")
+        self._font_status.pack(side="left", padx=10, pady=6, fill="x", expand=True)
+        ctk.CTkButton(
+            font_row, text="Télécharger", width=100, height=26,
+            font=ctk.CTkFont(size=10),
+            fg_color="#28252e", hover_color="#3a3548",
+            command=self._download_fonts,
+        ).pack(side="right", padx=6, pady=6)
+        self.after(100, self._check_fonts)
+
+        # ── Upscale ───────────────────────────────────────────────────────────
+        self._upscale_var = ctk.BooleanVar(value=False)
+        if self._upscaler_available:
+            ctk.CTkCheckBox(
+                scroll,
+                text="Upscaler avec Real-ESRGAN  (×4 — 1200 DPI)",
+                variable=self._upscale_var,
+                font=ctk.CTkFont(size=11),
+                checkbox_width=18, checkbox_height=18,
+            ).pack(padx=PAD, pady=(12, 0), anchor="w")
+
+        # ── Buttons (fixed bottom, outside scroll) ─────────────────────────
+        btn_frame = ctk.CTkFrame(self, fg_color="#1c1a20", height=52)
+        btn_frame.pack(fill="x", side="bottom", padx=0, pady=0)
+        btn_frame.pack_propagate(False)
+        ctk.CTkButton(btn_frame, text="Annuler", width=100, height=34,
+                      fg_color="#28252e", hover_color="#34303e",
+                      command=self.destroy).pack(side="right", padx=(0, PAD), pady=9)
+        ctk.CTkButton(btn_frame, text="Créer", width=120, height=34,
+                      fg_color="#c04828", hover_color="#a83820",
+                      command=self._apply).pack(side="right", padx=(0, 8), pady=9)
+
+    def _check_fonts(self) -> None:
+        """Update font status label."""
+        try:
+            from engine.font_manager import is_available
+            if is_available('name') and is_available('rules'):
+                self._font_status.configure(
+                    text="Polices MTG : Beleren + MPlantin installées",
+                    text_color="#6abf6a")
+            else:
+                self._font_status.configure(
+                    text="Polices MTG : non installées (Palatino utilisé)",
+                    text_color="#c09040")
+        except Exception:
+            self._font_status.configure(
+                text="Polices MTG : non vérifiées",
+                text_color="#a09aaa")
+
+    def _download_fonts(self) -> None:
+        """Download MTG fonts in background and update status."""
+        self._font_status.configure(
+            text="Téléchargement en cours…", text_color="#4090c0")
+        import threading as _t
+
+        def _worker():
+            try:
+                from engine.font_manager import prefetch_all
+                results = prefetch_all()
+                ok = sum(1 for v in results.values() if v)
+                total = len(results)
+                if ok == total:
+                    msg = f"Polices MTG : {ok}/{total} installées"
+                    color = "#6abf6a"
+                else:
+                    msg = f"Polices MTG : {ok}/{total} — vérifier connexion"
+                    color = "#c09040"
+                self.after(0, self._font_status.configure, {"text": msg, "text_color": color})
+            except Exception as e:
+                self.after(0, self._font_status.configure,
+                           {"text": f"Erreur: {e}", "text_color": "#c04828"})
+
+        _t.Thread(target=_worker, daemon=True).start()
+
+    def _browse_artwork(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choisir une image d'artwork",
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.webp"), ("All files", "*.*")],
+        )
+        if path:
+            self._artwork_path = path
+            fname = os.path.basename(path)
+            self._art_var.set(fname if len(fname) <= 46 else "…" + fname[-44:])
+
+    def _apply(self) -> None:
+        art    = self._artwork_path
+        name   = self._name_var.get().strip()
+        color  = self._color_var.get().strip()
+        layout = self._layout_var.get().strip()
+        mana   = self._mana_var.get().strip()
+        tl     = self._type_var.get().strip()
+        rules  = self._rules_textbox.get("1.0", "end").strip()
+        pt     = self._pt_var.get().strip()
+        up     = self._upscale_var.get()
+
+        if not art:
+            self._art_var.set("← Sélectionne un artwork d'abord !")
+            return
+        if not name:
+            self._name_entry.focus_set()
+            return
+
+        self.destroy()
+        self._app.statusbar.show_indeterminate(f"+Forge: {name}…")
+        import threading as _t
+        _t.Thread(
+            target=self._app._full_custom_worker,
+            args=(art, name, color, layout, mana, tl, rules, pt, up),
+            daemon=True,
+        ).start()

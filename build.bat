@@ -8,6 +8,8 @@ setlocal EnableDelayedExpansion
 :: Prerequisites (one-time):
 ::   pip install pyinstaller playwright
 ::   playwright install chromium
+::   pip install svglib reportlab   (optional — official mana symbols in +Forge)
+::   pip install cairosvg            (alternative, better quality but needs cairo DLL)
 :: ============================================================
 
 echo.
@@ -19,24 +21,7 @@ echo.
 echo  [1/4] Building exe with PyInstaller...
 echo.
 
-pyinstaller ^
-  --name "OtterForge" ^
-  --windowed ^
-  --icon "assets\otterforge_icon.ico" ^
-  --add-data "assets\OtterForge_Image.jpg;assets" ^
-  --add-data "assets\otterforge_icon.ico;assets" ^
-  --add-data "assets\otterforge_theme.json;assets" ^
-  --add-data "ui\dialogs;ui\dialogs" ^
-  --hidden-import customtkinter ^
-  --hidden-import PIL ^
-  --hidden-import PIL._imagingtk ^
-  --hidden-import PIL._tkinter_finder ^
-  --hidden-import requests ^
-  --hidden-import tkinterdnd2 ^
-  --collect-all customtkinter ^
-  --collect-all playwright ^
-  --noconfirm ^
-  main.py
+pyinstaller --noconfirm OtterForge.spec
 
 if not exist "dist\OtterForge\OtterForge.exe" (
   echo.

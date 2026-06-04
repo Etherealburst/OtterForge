@@ -30,7 +30,8 @@ _WINDOWS_FONT_CANDIDATES = [
 
 _STRIP_RATIO  = 0.08    # strip height as fraction of card height
 _STAMP_X      = 0.193   # "OtterForge Proxy" x-start (after CN number)
-_COPYRIGHT_X  = 0.59    # right fill zone start (clears WotC copyright)
+_FILL_X       = 0.57    # fill zone start (covers stamps + WotC copyright, skips set symbol)
+_COPYRIGHT_X  = 0.59    # sample zone for dark-bar detection
 _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 _CARD_W_REF   = 672.0   # Scryfall native PNG width (reference for offset scaling)
 _CARD_H_REF   = 936.0   # Scryfall native PNG height (reference for offset scaling)
@@ -85,26 +86,22 @@ def _outlined_text(
 
 
 def _should_apply_fill(card_json: dict | None, img: Image.Image) -> bool:
-    """Return True for standard dark-bordered cards where a fill can safely
-    hide the original collector-bar text without creating visible artifacts.
+    """Return True when the collector bar is dark enough to need fill/black-bg.
 
-    Skips fill for: borderless, white-bordered, full-art, extended-art,
-    showcase, and any other non-standard frame treatment.
+    White/silver borders are excluded upfront (they genuinely have light bars).
+    Everything else — including borderless, extended-art, full-art, inverted —
+    is decided by pixel-sampling the right zone of the collector bar, because
+    Scryfall's border_color describes the card frame, not the collector strip.
+    Many 'borderless' cards (Secret Lair, Final Fantasy, etc.) still have a
+    dark bar at the bottom that benefits from fill treatment.
     """
     if card_json:
         bc = card_json.get("border_color", "")
-        if bc in ("white", "borderless", "silver"):
+        if bc in ("white", "silver"):
             return False
-        fe = card_json.get("frame_effects") or []
-        if any(e in fe for e in ("extendedart", "showcase", "inverted", "fullart")):
-            return False
-        if card_json.get("full_art", False):
-            return False
-        return bc in ("black", "gold")
-    # Fallback: pixel-sample bottom-left corner (card border zone)
     w, h = img.size
-    sample = _sample_bg(img, 0, int(h * 0.93), int(w * 0.04), h)
-    return (sample[0] + sample[1] + sample[2]) // 3 < 40
+    sample = _sample_bg(img, int(w * _COPYRIGHT_X), int(h * 0.92), w, h)
+    return (sample[0] + sample[1] + sample[2]) // 3 < 60
 
 
 def _fill_zone(draw: ImageDraw.ImageDraw, img: Image.Image,
@@ -124,14 +121,20 @@ def _fill_zone(draw: ImageDraw.ImageDraw, img: Image.Image,
 class ProxyWatermark:
 
     def apply(self, image_path: str, card_json: dict | None = None,
-              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
+              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0),
+              bg: str = "transparent") -> None:
         """Modify the image at image_path in-place (disk write).
         Saves a clean _orig.png alongside on first application (for preview use).
         """
-        # Preserve the pre-watermark original for zoom-preview transparency
+        # Preserve the pre-watermark original for zoom-preview transparency.
+        # Always draw from _orig.png when it exists so re-applying watermark
+        # (e.g. after creature-offset code update) never stacks two watermarks.
+        _source = image_path
         if image_path.endswith(".png"):
             _orig = image_path.replace(".png", "_orig.png")
-            if not os.path.exists(_orig):
+            if os.path.exists(_orig):
+                _source = _orig          # draw on clean source, overwrite image_path
+            else:
                 try:
                     import shutil as _sh
                     _sh.copy2(image_path, _orig)
@@ -139,27 +142,38 @@ class ProxyWatermark:
                     pass
 
         try:
-            raw = Image.open(image_path)
+            raw = Image.open(_source)
             if raw.mode in ("RGBA", "LA", "PA"):
-                bg = Image.new("RGBA", raw.size, (14, 11, 19, 255))
-                bg.paste(raw, mask=raw.split()[-1])
-                img = bg.convert("RGB")
+                _bg_img = Image.new("RGBA", raw.size, (14, 11, 19, 255))
+                _bg_img.paste(raw, mask=raw.split()[-1])
+                img = _bg_img.convert("RGB")
             else:
                 img = raw.convert("RGB")
         except Exception as e:
             print(f"[ProxyWatermark] Cannot open {image_path!r}: {e}")
             return
 
-        self._draw(img, card_json, offset, nfs_offset)
+        _norm = image_path.replace("\\", "/")
+        _skip_fill = "/cache/custom/" in _norm
+        self._draw(img, card_json, offset, nfs_offset, bg, skip_fill=_skip_fill)
         img.save(image_path, "PNG", compress_level=6)
         print(f"[ProxyWatermark] Applied: {os.path.basename(image_path)}")
 
+        # Workspace and inspector fall back to the native .png for display (not _1200dpi.png).
+        # For upscaled custom cards, also watermark the native .png so the UI shows the change.
+        if _skip_fill and image_path.endswith("_1200dpi.png"):
+            _native = image_path.replace("_1200dpi.png", ".png")
+            if os.path.isfile(_native):
+                self.apply(_native, card_json, offset, nfs_offset, bg)
+
     def apply_to_image(self, img: Image.Image, card_json: dict | None = None,
-                       offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
-        self._draw(img, card_json, offset, nfs_offset)
+                       offset: tuple = (0, 0), nfs_offset: tuple = (0, 0),
+                       bg: str = "transparent") -> None:
+        self._draw(img, card_json, offset, nfs_offset, bg)
 
     def _draw(self, img: Image.Image, card_json: dict | None,
-              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0)) -> None:
+              offset: tuple = (0, 0), nfs_offset: tuple = (0, 0),
+              bg: str = "transparent", skip_fill: bool = False) -> None:
         w, h = img.size
 
         # Scale offsets from 672×936 reference to actual image dimensions
@@ -197,25 +211,47 @@ class ProxyWatermark:
         stamp_x   = max(0, min(w - 1, int(w * _STAMP_X) + ox))
         stamp_ty  = max(0, min(h - sz - 1, base_text_y + oy))
 
-        cx         = int(w * _COPYRIGHT_X)
-        apply_fill = _should_apply_fill(card_json, img)
+        cx         = int(w * _FILL_X)
+        apply_fill = not skip_fill and _should_apply_fill(card_json, img)
+
+        is_creature = card_json and "Creature" in card_json.get("type_line", "")
+        nfs_creature_dy = sz if is_creature else 0
 
         if apply_fill:
             nfs_x = max(0, min(w - 1, w - max(4, w // 60) - nfs_w - 40     + nfs_ox))
         else:
             nfs_x = max(0, min(w - 1, max(w // 2, w - max(4, w // 60) - nfs_w - 190) + nfs_ox))
-        nfs_ty = max(0, min(h - sz - 1, base_text_y + nfs_oy))
-
-        # Fill zones anchored on base_text_y so WotC text is always erased
-        fill_y0 = max(y_top, base_text_y - 2)
-        fill_y1 = min(h - 1, base_text_y + text_h_px + 2)
+        nfs_ty = max(0, min(h - sz - 1, base_text_y + nfs_oy + nfs_creature_dy))
 
         draw = ImageDraw.Draw(img)
 
         if apply_fill:
-            # Right zone only: WotC copyright, text height only
-            # Left fill removed — OtterForge Proxy is readable with outline; artist preserved
-            _fill_zone(draw, img, cx, w, fill_y0, fill_y1, y_top)
+            # For creature cards stop 5 px before NFS to avoid clipping the P/T box.
+            fill_x1 = max(cx, nfs_x - 5) if is_creature else w
+            # Sample the left border strip to get the frame's background colour
+            # (handles red/gold/showcase frames — not just black).
+            _border_col = _sample_bg(img, 0, y_top, max(1, int(w * 0.04)), h)
+            draw.rectangle([cx, y_top, fill_x1 - 1, h - 1], fill=_border_col)
+            _text_bg_fill = _border_col
+        else:
+            _text_bg_fill = (0, 0, 0)
+
+        if bg == "black" or (bg == "auto" and apply_fill):
+            pad_stamp = 1
+            pad_nfs   = 4
+            try:
+                bb_s = font.getbbox(stamp)
+                draw.rectangle([
+                    stamp_x + bb_s[0] - pad_stamp, stamp_ty + bb_s[1] - pad_stamp,
+                    stamp_x + bb_s[2] + pad_stamp, stamp_ty + bb_s[3] + pad_stamp,
+                ], fill=_text_bg_fill)
+                bb_n = font.getbbox(nfs)
+                draw.rectangle([
+                    nfs_x + bb_n[0] - pad_nfs, nfs_ty + bb_n[1] - pad_nfs,
+                    nfs_x + bb_n[2] + pad_nfs, nfs_ty + bb_n[3] + pad_nfs,
+                ], fill=_text_bg_fill)
+            except Exception:
+                pass
 
         _outlined_text(draw, (stamp_x, stamp_ty), stamp, font, epaisseur=1)
         _outlined_text(draw, (nfs_x,   nfs_ty),   nfs,   font, epaisseur=1)

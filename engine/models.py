@@ -30,6 +30,7 @@ class Card:
         self.back_image_path: str | None = None  # override endos pour cette carte
         self.watermark_offset: tuple = (0, 0)      # "OtterForge Proxy" (dx, dy), ref 672×936 px
         self.watermark_nfs_offset: tuple = (0, 0)  # "Not for sale" (dx, dy), ref 672×936 px
+        self.watermark_bg: str = "auto"            # "auto" | "transparent" | "black"
 
     def to_dict(self) -> dict:
         """Sérialise la carte en dictionnaire (pour sauvegarde JSON)."""
@@ -44,6 +45,8 @@ class Card:
             d["watermark_offset"] = list(self.watermark_offset)
         if self.watermark_nfs_offset != (0, 0):
             d["watermark_nfs_offset"] = list(self.watermark_nfs_offset)
+        if self.watermark_bg != "auto":
+            d["watermark_bg"] = self.watermark_bg
         return d
 
     def __repr__(self):

@@ -276,7 +276,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         self._btn_clear_cache.pack(side="left", padx=(0, 4))
 
         self._btn_move_wm = ctk.CTkButton(
-            btn_row, text="Move WM", width=112, height=26,
+            btn_row, text="Watermark", width=112, height=26,
             font=ctk.CTkFont(size=10),
             fg_color="#28252e", hover_color="#3a3548",
             state="disabled",
@@ -869,18 +869,46 @@ class CardInspectorPanel(ctk.CTkFrame):
             stamp_w = len("OtterForge Proxy") * max(4, sz * 6 // 10)
             nfs_tw  = len("Not for sale")     * max(4, sz * 6 // 10)
 
-        # Determine apply_fill from card metadata so NFS position matches actual watermark
-        _cj = _load_card_meta(card.image_path)
+        # Determine apply_fill by pixel-sampling the collector bar (matches proxy_watermark logic).
+        # White/silver borders are excluded upfront; everything else is decided by the image.
+        # Custom cards (cache/custom/) have no collector bar — never apply fill.
+        _cj = None
         _apply_fill = True
-        if _cj:
-            _bc = _cj.get("border_color", "")
-            _fe = _cj.get("frame_effects") or []
-            if (_bc in ("white", "borderless", "silver")
-                    or any(e in _fe for e in ("extendedart", "showcase", "inverted", "fullart"))
-                    or _cj.get("full_art", False)):
+        try:
+            _norm_ip = card.image_path.replace("\\", "/")
+            if "/cache/custom/" in _norm_ip:
                 _apply_fill = False
-            elif _bc not in ("black", "gold"):
-                _apply_fill = False
+            else:
+                _cj = _load_card_meta(card.image_path)
+                if _cj and _cj.get("border_color", "") in ("white", "silver"):
+                    _apply_fill = False
+                else:
+                    _sp = card.image_path
+                    if _sp.endswith("_1200dpi.png"):
+                        _n = _sp.replace("_1200dpi.png", ".png")
+                        if os.path.exists(_n):
+                            _sp = _n
+                    _orig_sp = _sp.replace(".png", "_orig.png") if _sp.endswith(".png") else _sp
+                    if os.path.exists(_orig_sp):
+                        _sp = _orig_sp
+                    _probe = Image.open(_sp)
+                    _pw, _ph = _probe.size
+                    _sx0 = int(_pw * 0.59)
+                    _sy0 = int(_ph * 0.92)
+                    _xstep = max(1, (_pw - _sx0) // 16)
+                    _ystep = max(1, (_ph - _sy0) // 5)
+                    _pts = [_probe.getpixel((x, y))
+                            for x in range(_sx0, _pw, _xstep)
+                            for y in range(_sy0, _ph, _ystep)]
+                    if _pts:
+                        _avg = sum(p[0] + p[1] + p[2] for p in _pts) // (len(_pts) * 3)
+                        _apply_fill = _avg < 60
+                    _probe.close()
+        except Exception:
+            _apply_fill = True
+
+        _is_creature = bool(_cj and "Creature" in _cj.get("type_line", ""))
+        _nfs_creature_dy = sz if _is_creature else 0
 
         # base_nfs_x: compute in native 672px space (matches proxy_watermark._draw exactly),
         # then scale to canvas. Using canvas-space constants directly caused a systematic
@@ -909,12 +937,13 @@ class CardInspectorPanel(ctk.CTkFrame):
         init_sx    = base_sx    + round(cur_ox     * cv_w / 672)
         init_ty    = base_ty    + round(cur_oy     * cv_h / 936)
         init_nfs_x = base_nfs_x + round(cur_nfs_ox * cv_w / 672)
-        init_nfs_y = base_ty    + round(cur_nfs_oy * cv_h / 936)
+        init_nfs_y = base_ty    + round(cur_nfs_oy * cv_h / 936) + _nfs_creature_dy
 
         # ── PIL image state ───────────────────────────────────────────────────
-        _base_img   = [None]
-        _canvas_img = [None]
-        _canvas_tk  = [None]
+        _base_img      = [None]
+        _canvas_img    = [None]
+        _canvas_tk     = [None]
+        _border_col_ref = [(14, 11, 19)]   # set by _apply_fill_to_canvas, used by _refresh_canvas
 
         # ── State variables ────────────────────────────────────────────────────
         _drag_origin = [0, 0]
@@ -923,6 +952,8 @@ class CardInspectorPanel(ctk.CTkFrame):
         _dt_nfs      = [0, 0]
         _dragged     = [False]
         _asking      = [False]
+
+        _wm_bg = getattr(card, "watermark_bg", "auto")
 
         def _refresh_canvas():
             if _base_img[0] is None:
@@ -938,6 +969,24 @@ class CardInspectorPanel(ctk.CTkFrame):
             sy = init_ty    + _dt_stamp[1]
             nx = init_nfs_x + _dt_nfs[0]
             ny = init_nfs_y + _dt_nfs[1]
+            _draw_black_bg = (_wm_bg == "black") or (_wm_bg == "auto" and _apply_fill)
+            if _draw_black_bg:
+                pad_stamp   = 1
+                pad_nfs     = 4
+                _text_bg    = _border_col_ref[0] if _apply_fill else (0, 0, 0)
+                try:
+                    bb_s = pil_font.getbbox("OtterForge Proxy")
+                    draw.rectangle([
+                        sx + bb_s[0] - pad_stamp, sy + bb_s[1] - pad_stamp,
+                        sx + bb_s[2] + pad_stamp, sy + bb_s[3] + pad_stamp,
+                    ], fill=_text_bg)
+                    bb_n = pil_font.getbbox("Not for sale")
+                    draw.rectangle([
+                        nx + bb_n[0] - pad_nfs, ny + bb_n[1] - pad_nfs,
+                        nx + bb_n[2] + pad_nfs, ny + bb_n[3] + pad_nfs,
+                    ], fill=_text_bg)
+                except Exception:
+                    pass
             for ddx, ddy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 draw.text((sx+ddx, sy+ddy), "OtterForge Proxy", fill=(0,0,0), font=pil_font)
                 draw.text((nx+ddx, ny+ddy), "Not for sale",     fill=(0,0,0), font=pil_font)
@@ -1083,6 +1132,28 @@ class CardInspectorPanel(ctk.CTkFrame):
         # ── Load image — prefer _orig.png (pre-watermark) for clean preview ───
         self._zoom_img_ref = None
 
+        def _apply_fill_to_canvas(img: Image.Image) -> None:
+            """Apply fill zone using border-sampled colour (matches proxy_watermark logic)."""
+            if not _apply_fill:
+                return
+            d = ImageDraw.Draw(img)
+            fcx = round(cv_w * 0.57)
+            fx1 = min((init_nfs_x - 5) if _is_creature else cv_w, cv_w)
+            # Sample left border strip for frame colour (handles coloured frames)
+            _lx1 = max(1, round(cv_w * 0.04))
+            _xstep = max(1, _lx1 // 16)
+            _ystep = max(1, (cv_h - y_top) // 5)
+            _pts = [img.getpixel((x, y))
+                    for x in range(0, _lx1, _xstep)
+                    for y in range(y_top, cv_h, _ystep)]
+            if _pts:
+                _pts.sort(key=lambda p: p[0] + p[1] + p[2])
+                _border_col = _pts[len(_pts) // 2]
+            else:
+                _border_col = (14, 11, 19)
+            _border_col_ref[0] = _border_col
+            d.rectangle([fcx, y_top, fx1 - 1, cv_h - 1], fill=_border_col)
+
         def _load():
             try:
                 path = card.image_path
@@ -1125,12 +1196,14 @@ class CardInspectorPanel(ctk.CTkFrame):
                                         img.save(save_path, "PNG", compress_level=6)
                                     except Exception:
                                         pass
+                                    _apply_fill_to_canvas(img)
                                     _base_img[0] = img
                                     self.after(0, _refresh_canvas)
                                     return
                         except Exception:
                             pass  # fall through to watermarked image
                 img = Image.open(path).convert("RGB").resize((cv_w, cv_h), Image.LANCZOS)
+                _apply_fill_to_canvas(img)
                 _base_img[0] = img
                 self.after(0, _refresh_canvas)
             except Exception as exc:
@@ -1172,39 +1245,42 @@ class CardInspectorPanel(ctk.CTkFrame):
         def _worker():
             try:
                 image_path = card.image_path
-                # Load card_json BEFORE deleting anything
-                card_json = _load_card_meta(image_path)
-                if not card_json:
-                    card_json = self.app.scryfall.get_card(card.name)
-                if not card_json:
-                    self.after(0, self.app.statusbar.set_status,
-                               "Re-fetch failed — check internet connection.")
-                    return
+                card_json  = _load_card_meta(image_path)
 
-                # Delete all cache variants
-                _delete_card_cache_files(image_path)
+                if card_json:
+                    # Known Scryfall card: delete cache + fresh download for cleanest source.
+                    _delete_card_cache_files(image_path)
+                    paths = self.app.scryfall.download_all_face_images(card_json)
+                    if not paths:
+                        self.after(0, self.app.statusbar.set_status, "Re-download failed.")
+                        return
+                    update_paths = True
+                else:
+                    # No local metadata (custom card or unknown): reapply watermark in place.
+                    # Never fall back to scryfall.get_card() — it would replace custom artwork.
+                    # apply() auto-applies to native .png if image_path is _1200dpi.png.
+                    paths = [image_path]
+                    bp = getattr(card, "back_image_path", None)
+                    if bp and os.path.isfile(bp):
+                        paths.append(bp)
+                    update_paths = False
 
-                # Re-download native PNG(s)
-                paths = self.app.scryfall.download_all_face_images(card_json)
-                if not paths:
-                    self.after(0, self.app.statusbar.set_status, "Re-download failed.")
-                    return
-
-                # Apply watermark with stored offsets (stamp + NFS independent)
                 offset     = getattr(card, "watermark_offset",     (0, 0))
                 nfs_offset = getattr(card, "watermark_nfs_offset", (0, 0))
+                wm_bg      = getattr(card, "watermark_bg",         "transparent")
                 wm_enabled = getattr(self.app, "_watermark_enabled", False)
                 if wm_enabled and hasattr(self.app, "_watermark"):
                     for p in paths:
                         if os.path.exists(p):
                             self.app._watermark.apply(p, card_json,
                                                       offset=offset,
-                                                      nfs_offset=nfs_offset)
+                                                      nfs_offset=nfs_offset,
+                                                      bg=wm_bg)
 
-                # Update card paths to freshly downloaded files
-                card.image_path = paths[0]
-                if len(paths) > 1:
-                    card.back_image_path = paths[1]
+                if update_paths:
+                    card.image_path = paths[0]
+                    if len(paths) > 1:
+                        card.back_image_path = paths[1]
 
                 self.after(0, self._on_reapply_done, card)
 
@@ -1236,7 +1312,7 @@ class CardInspectorPanel(ctk.CTkFrame):
 # ── Watermark offset dialog ───────────────────────────────────────────────────
 
 class _WatermarkOffsetDialog(ctk.CTkToplevel):
-    """Small dialog to adjust the per-card watermark offset (dx, dy in native pixels)."""
+    """Dialog to configure per-card watermark options (background style)."""
 
     def __init__(self, inspector: "CardInspectorPanel", card, app) -> None:
         super().__init__(app)
@@ -1244,7 +1320,7 @@ class _WatermarkOffsetDialog(ctk.CTkToplevel):
         self._card = card
         self._app = app
 
-        self.title("Move Watermark")
+        self.title("Watermark")
         self.resizable(False, False)
         self.grab_set()
         self.lift()
@@ -1253,56 +1329,45 @@ class _WatermarkOffsetDialog(ctk.CTkToplevel):
         self.update_idletasks()
         px = inspector.winfo_rootx() - 20
         py = inspector.winfo_rooty() + 60
-        self.geometry(f"260x230+{px}+{py}")
-
-        ox, oy = getattr(card, "watermark_offset", (0, 0))
+        self.geometry(f"340x170+{px}+{py}")
 
         ctk.CTkLabel(
             self, text=f'"{card.name}"',
             font=ctk.CTkFont(size=10), text_color="#a09aaa",
-            wraplength=240, justify="left",
-        ).pack(padx=16, pady=(14, 6), anchor="w")
+            wraplength=256, justify="left",
+        ).pack(padx=16, pady=(14, 10), anchor="w")
 
-        # dx row
-        dx_row = ctk.CTkFrame(self, fg_color="transparent")
-        dx_row.pack(padx=16, pady=(4, 0), fill="x")
-        ctk.CTkLabel(dx_row, text="Horizontal (px):", width=120,
+        # Background style row
+        bg_row = ctk.CTkFrame(self, fg_color="transparent")
+        bg_row.pack(padx=16, pady=(0, 0), fill="x")
+        ctk.CTkLabel(bg_row, text="Fond du texte:", width=110,
                      font=ctk.CTkFont(size=11), anchor="w").pack(side="left")
-        self._dx_var = tk.StringVar(value=str(ox))
-        ctk.CTkEntry(dx_row, textvariable=self._dx_var, width=72,
-                     font=ctk.CTkFont(size=11)).pack(side="left")
-
-        # dy row
-        dy_row = ctk.CTkFrame(self, fg_color="transparent")
-        dy_row.pack(padx=16, pady=(8, 0), fill="x")
-        ctk.CTkLabel(dy_row, text="Vertical (px):", width=120,
-                     font=ctk.CTkFont(size=11), anchor="w").pack(side="left")
-        self._dy_var = tk.StringVar(value=str(oy))
-        ctk.CTkEntry(dy_row, textvariable=self._dy_var, width=72,
-                     font=ctk.CTkFont(size=11)).pack(side="left")
+        current_bg = getattr(card, "watermark_bg", "auto")
+        _bg_label = {"auto": "Auto", "black": "Noir"}.get(current_bg, "Transparent")
+        self._bg_var = tk.StringVar(value=_bg_label)
+        ctk.CTkSegmentedButton(
+            bg_row, values=["Transparent", "Auto", "Noir"],
+            variable=self._bg_var, width=200, height=26,
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left")
 
         ctk.CTkLabel(
-            self, text="Negative = up/left  ·  Reference: 672px native",
+            self, text="Auto = fond noir sur cartes à bordure noire/gold",
             font=ctk.CTkFont(size=9), text_color="#6a6478",
         ).pack(padx=16, pady=(6, 0), anchor="w")
 
         # Buttons
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
-        btn_row.pack(padx=16, pady=(14, 0), fill="x")
-        ctk.CTkButton(btn_row, text="Cancel", width=88, height=28,
+        btn_row.pack(padx=16, pady=(12, 0), fill="x")
+        ctk.CTkButton(btn_row, text="Annuler", width=88, height=28,
                       fg_color="#28252e", hover_color="#34303e",
                       command=self.destroy).pack(side="right")
-        ctk.CTkButton(btn_row, text="Apply", width=88, height=28,
+        ctk.CTkButton(btn_row, text="Appliquer", width=100, height=28,
                       fg_color="#c04828", hover_color="#a83820",
                       command=self._apply).pack(side="right", padx=(0, 8))
 
     def _apply(self) -> None:
-        try:
-            dx = int(self._dx_var.get())
-            dy = int(self._dy_var.get())
-        except ValueError:
-            return
-        self._card.watermark_offset = (dx, dy)
+        self._card.watermark_bg = {"Noir": "black", "Auto": "auto"}.get(self._bg_var.get(), "transparent")
         if hasattr(self._app, "_auto_save"):
             self._app._auto_save()
         self.destroy()

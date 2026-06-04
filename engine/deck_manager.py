@@ -124,6 +124,8 @@ class DeckManager:
             wno = c.get("watermark_nfs_offset")
             if wno and len(wno) == 2:
                 card.watermark_nfs_offset = (int(wno[0]), int(wno[1]))
+            if c.get("watermark_bg") in ("auto", "transparent", "black"):
+                card.watermark_bg = c["watermark_bg"]
             self.add_card(card)
 
     # ------------------------------------------------------------------
@@ -179,6 +181,8 @@ class DeckManager:
             wno = c.get("watermark_nfs_offset")
             if wno and len(wno) == 2:
                 card.watermark_nfs_offset = (int(wno[0]), int(wno[1]))
+            if c.get("watermark_bg") in ("auto", "transparent", "black"):
+                card.watermark_bg = c["watermark_bg"]
             # Résoudre back_image_path : fallback natif si l'upscalé est absent
             bp = c.get("back_image_path")
             if bp:

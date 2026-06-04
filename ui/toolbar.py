@@ -67,11 +67,12 @@ class Toolbar(ctk.CTkFrame):
         row = ctk.CTkFrame(deck_grp, fg_color="transparent")
         row.pack(pady=(0, 6))
 
-        _tool_btn(row, "Load",      self.master.load_deck_file,          "Load a deck JSON file")
-        _tool_btn(row, "Save",      self.master.save_deck,               "Save the active deck")
-        _tool_btn(row, "Import",    self.master.import_txt_deck,         "Import a TXT / Moxfield file")
-        _tool_btn(row, "TXT",       self.master.export_txt_deck,         "Export deck as text file")
-        _tool_btn(row, "+ Custom",  self.master.add_custom_image_dialog, "Add a local PNG image as a custom card")
+        _tool_btn(row, "Load",    self.master.load_deck_file,          "Load a deck JSON file")
+        _tool_btn(row, "Save",    self.master.save_deck,               "Save the active deck")
+        _tool_btn(row, "Import",  self.master.import_txt_deck,         "Import a TXT / Moxfield file")
+        _tool_btn(row, "TXT",     self.master.export_txt_deck,         "Export deck as text file",       w=56)
+        _tool_btn(row, "Custom",  self.master.add_custom_image_dialog, "Add a local PNG image as a custom card")
+        _tool_btn(row, "+Forge",  self.master.open_card_creator,       "Card Creator: formulaire complet + apercu live")
 
         # ── Séparateur ────────────────────────────────────────────────────
         _vsep(self)
@@ -85,28 +86,27 @@ class Toolbar(ctk.CTkFrame):
         row2 = ctk.CTkFrame(out_grp, fg_color="transparent")
         row2.pack(pady=(0, 6))
 
-        _tool_btn(row2, "Export",      self.master.export_print_sheets,    "Generate MPC print sheets (3×3 grid)")
-        _tool_btn(row2, "Print",       self.master.open_home_print_dialog, "Print at home (PDF/PNG)")
-        _tool_btn(row2, "Card Back",   self.master.choose_card_back,       "Choose deck card back image")
-        _tool_btn(row2, "MPC",         self.master.upload_to_mpc,          "Upload to MakePlayingCards.com")
-        _tool_btn(row2, "Upscale",     self.master.upscale_cache_batch,    "Upscale cache with Real-ESRGAN (×4)")
-        _tool_btn(row2, "Clear Cache", self.master.purge_cache,            "Clear Scryfall image cache")
+        _tool_btn(row2, "Export",   self.master.export_print_sheets,    "Generate MPC print sheets (3×3 grid)")
+        _tool_btn(row2, "Print",    self.master.open_home_print_dialog, "Print at home (PDF/PNG)")
+        _tool_btn(row2, "CardBack", self.master.choose_card_back,       "Choose deck card back image")
+        _tool_btn(row2, "MPC",      self.master.upload_to_mpc,          "Upload to MakePlayingCards.com", w=56)
+        _tool_btn(row2, "Upscale",  self.master.upscale_cache_batch,    "Upscale cache with Real-ESRGAN (×4)")
+        _tool_btn(row2, "Cache",    self.master.purge_cache,            "Clear Scryfall image cache")
 
-        # ── Séparateur ────────────────────────────────────────────
-        _vsep(self)
+        # ── CONFIG — toujours visible, packée à DROITE ────────────────────────
+        _vsep_right(self)
 
-        # ── Groupe CONFIG ─────────────────────────────────────────
         cfg_grp = ctk.CTkFrame(self, fg_color="transparent")
-        cfg_grp.pack(side="left", fill="y", padx=(4, 8))
+        cfg_grp.pack(side="right", fill="y", padx=(4, 8))
 
         _micro_label(cfg_grp, "CONFIG")
 
         row3 = ctk.CTkFrame(cfg_grp, fg_color="transparent")
         row3.pack(pady=(0, 6))
 
-        _tool_btn(row3, "Settings", self.master.open_settings,  "Open settings")
-        _tool_btn(row3, "Sidebar",  self.master.toggle_sidebar, "Toggle sidebar (normal / compact / hidden)")
-        _tool_btn(row3, "?",        _open_user_guide,           "User guide")
+        _tool_btn(row3, "Settings", self.master.open_settings,  "Open settings",  w=84)
+        _tool_btn(row3, "Sidebar",  self.master.toggle_sidebar, "Toggle sidebar", w=72)
+        _tool_btn(row3, "?",        _open_user_guide,           "User guide",     w=32)
 
 
 # ── User Guide ───────────────────────────────────────────────────────────────
@@ -204,6 +204,12 @@ def _vsep(parent) -> None:
     )
 
 
+def _vsep_right(parent) -> None:
+    ctk.CTkFrame(parent, width=1, fg_color="#34303e").pack(
+        side="right", fill="y", padx=10, pady=10
+    )
+
+
 def _micro_label(parent, text: str) -> None:
     ctk.CTkLabel(
         parent, text=text,
@@ -213,9 +219,9 @@ def _micro_label(parent, text: str) -> None:
     ).pack(anchor="w", padx=4, pady=(4, 2))
 
 
-def _tool_btn(parent, text: str, command, tooltip: str = "") -> ctk.CTkButton:
+def _tool_btn(parent, text: str, command, tooltip: str = "", w: int = 88) -> ctk.CTkButton:
     btn = ctk.CTkButton(
-        parent, text=text, width=104, height=28,
+        parent, text=text, width=w, height=28,
         font=ctk.CTkFont(size=11),
         command=command,
     )
