@@ -79,7 +79,17 @@ OtterForge downloads all cards in parallel and shows a summary of any cards it c
 
 ---
 
-### 3. Manage your deck
+### 3. Import from a folder
+
+Click **Custom** in the toolbar to import card images directly from a local folder — useful for custom artwork, alter art, proxy art packs, or cards that aren't on Scryfall.
+
+- **Single image** — enter a card name and optionally enable AI upscaling
+- **Multiple images** — select several files at once; file names are used as card names
+- Images are copied to `cache/custom/` and stamped with the OtterForge proxy watermark
+
+---
+
+### 4. Manage your deck
 
 | Action | How |
 |--------|-----|
@@ -95,14 +105,30 @@ Decks are **auto-saved** after every change to the `decks/` folder as JSON files
 
 ---
 
-### 4. Set a card back
+### 5. Adjust the proxy watermark
+
+Every card is automatically stamped with an **OtterForge Proxy** label and a **Not for sale** notice.
+
+To reposition the stamps:
+1. Click any card image in the inspector panel to open the **zoom popup**
+2. **Drag** either stamp to any position on the card
+3. Click outside the popup → choose **Save** to write the position to disk, or **Back** to revert
+
+To change the stamp background style, click the **Watermark** button in the inspector:
+- **Transparent** — text only (white + black outline), no background fill
+- **Auto** — fills the collector bar area with the card's border colour (default)
+- **Black** — always fills with a dark background
+
+---
+
+### 6. Set a card back
 
 Click **Card Back** in the toolbar to choose a custom back image for the whole deck.  
 Double-faced cards automatically use their printed back face — no setup needed.
 
 ---
 
-### 5. Upload to MakePlayingCards.com
+### 7. Upload to MakePlayingCards.com
 
 1. Click **MPC** in the toolbar
 2. Configure the order:
@@ -118,7 +144,7 @@ A browser window opens (or runs silently in the background) and fills in your MP
 
 ---
 
-### 6. Create custom cards (+Forge)
+### 8. Create custom cards (+Forge)
 
 Click **+Forge** in the toolbar to open the Card Creator panel.
 
@@ -140,7 +166,7 @@ The generated image is saved in `cache/custom/` and behaves like any other card 
 
 ---
 
-### 7. Export print sheets
+### 9. Export print sheets
 
 Click **Export** to generate 3×3 print sheets (300 DPI PNG + ZIP archive) in the `output/sheets/` folder.  
 These are ready for home printing or sending to a local print shop.
