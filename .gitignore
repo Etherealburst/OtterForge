@@ -54,6 +54,12 @@ assets/OTTER_APPS_BRAND_GUIDE.md
 assets/All_OtterApps_Logo_and_Icons.html
 assets/otter-icons-final.html
 
+# Documents de dev interne (plans, audits Claude AI)
+OTTERFORGE_CARD_CREATOR_PLAN.md
+OtterForge_Audit*.md
+CLAUDE_*.md
+CLAUDE_V*.md
+
 # Screenshots de dev (pas liés au README)
 Screenshot*.png
 screenshot*.png
