@@ -766,7 +766,9 @@ class OtterForgeApp(_AppBase):
         self.statusbar.set_status(status)
 
         if not cards:
-            self.statusbar.set_status("No cards imported")
+            self.statusbar.set_status("No cards imported" + (f" — {len(skipped)} skipped" if skipped else ""))
+            if skipped:
+                self._show_skipped_report(skipped)
             return
 
         self._auto_save()
@@ -968,6 +970,7 @@ class OtterForgeApp(_AppBase):
             resp = _req.get(
                 "https://api.scryfall.com/cards/named",
                 params={"exact": "Lightning Bolt"},
+                headers={"User-Agent": "OtterForge/2.0 (personal proxy tool)"},
                 timeout=8,
             )
             resp.raise_for_status()
@@ -1035,8 +1038,6 @@ class OtterForgeApp(_AppBase):
             else:
                 self.after(0, messagebox.showerror, "MPC error", msg)
                 self.after(0, self.statusbar.hide_progress)
-        finally:
-            self._upload_in_progress = False
 
     def _on_mpc_upload_done(self) -> None:
         self._upload_in_progress = False
@@ -1249,7 +1250,7 @@ class OtterForgeApp(_AppBase):
                     print(f"[App] Forge upscale failed: {e}")
 
             if self._watermark_enabled:
-                self._watermark.apply(final_path)
+                self._watermark.apply(final_path, is_custom=True)
 
             self.after(0, self._add_custom_card, card_name, os.path.normpath(final_path))
         except Exception as e:
@@ -1329,7 +1330,7 @@ class OtterForgeApp(_AppBase):
                 final_path = base_path
 
             if self._watermark_enabled:
-                self._watermark.apply(final_path)
+                self._watermark.apply(final_path, is_custom=True)
 
             self.after(0, self._add_custom_card, card_name, os.path.normpath(final_path))
         except Exception as e:
@@ -1402,7 +1403,7 @@ class OtterForgeApp(_AppBase):
                         print(f"[App] Batch upscale failed for {card_name!r}: {e}")
 
                 if self._watermark_enabled:
-                    self._watermark.apply(final_path, card_json)
+                    self._watermark.apply(final_path, card_json, is_custom=True)
 
                 results.append({
                     "name": card_name,
@@ -1476,7 +1477,7 @@ class OtterForgeApp(_AppBase):
                     print(f"[App] Upscale failed for {card_name!r}: {e} — using processed image")
 
             if self._watermark_enabled:
-                self._watermark.apply(final_path, card_json)
+                self._watermark.apply(final_path, card_json, is_custom=True)
 
             self.after(0, self._add_custom_card, card_name, os.path.normpath(final_path))
         except Exception as e:
@@ -1526,6 +1527,7 @@ class OtterForgeApp(_AppBase):
     def _add_custom_card(self, name: str, final_path: str) -> None:
         """Add a custom card to the active deck (must be called on main thread)."""
         card = Card(name, final_path)
+        card.is_custom = True
 
         self._push_undo_snapshot()
         deck = self.deck_manager.active_deck()
@@ -1664,13 +1666,24 @@ class OtterForgeApp(_AppBase):
         if not files:
             self.deck_manager.create_deck("New Deck")
             return
+
+        skipped = []
         for path in files:
             try:
                 self.deck_manager.load_deck(path)
             except Exception as e:
                 print(f"[App] Erreur chargement deck {path!r} : {e}")
+                skipped.append(os.path.basename(path))
+
         if not self.deck_manager.decks:
             self.deck_manager.create_deck("New Deck")
+
+        if skipped:
+            names = ", ".join(skipped[:3])
+            suffix = f" (+{len(skipped)-3} autres)" if len(skipped) > 3 else ""
+            self.after(500, lambda: self.statusbar.set_status(
+                f"Attention : {len(skipped)} deck(s) ignoré(s) au chargement : {names}{suffix}"
+            ))
 
     # ======================================================================
     # FERMETURE

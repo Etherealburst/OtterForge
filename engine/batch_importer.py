@@ -19,7 +19,7 @@ import os
 import re
 import threading
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from engine.scryfall_downloader import ScryfallDownloader
 from engine.upscaler import ImageUpscaler
 
@@ -197,7 +197,7 @@ class BatchImporter:
             for idx, result in pool.map(_download_one, enumerate(parsed_lines)):
                 download_results[idx] = result
 
-        # ── Phase 2 : upscaling (parallèle max 2 workers) + construction ────
+        # ── Phase 2 : upscaling batch (modèle ESRGAN chargé une fois) + construction ────
         # Collecter les tâches d'upscaling en filtrant les cache hits
         upscale_tasks = []          # [(idx, face_index, raw_path, fname)]
         final_face_paths: dict = {} # (idx, face_index) → chemin final
@@ -221,29 +221,42 @@ class BatchImporter:
                 else:
                     final_face_paths[(idx, face_index)] = self._apply_300dpi_bleed(raw_path)
 
-        # Upscaling parallèle (max 2 pour ne pas saturer le GPU)
+        # Upscaling batch (modèle ESRGAN chargé une seule fois pour toutes les cartes)
         if upscale_tasks:
             _upscale_total = len(upscale_tasks)
-            _upscale_done = [0]
-            _upscale_lock2 = threading.Lock()
+            batch_pairs = [
+                (raw_path, raw_path.replace(".png", "_1200dpi.png"))
+                for _, _, raw_path, _ in upscale_tasks
+            ]
 
-            def _upscale_one(task):
-                idx, face_index, raw_path, fname = task
-                out = raw_path.replace(".png", "_1200dpi.png")
-                try:
-                    res = idx, face_index, self.upscaler.upscale_to_1200dpi(raw_path, out)
-                except Exception as e:
-                    print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {e} — fallback 300 DPI")
-                    res = idx, face_index, self._apply_300dpi_bleed(raw_path)
-                with _upscale_lock2:
-                    _upscale_done[0] += 1
+            def _batch_progress(done: int, total: int) -> None:
+                if upscale_callback:
+                    fname = upscale_tasks[done - 1][3] if done - 1 < len(upscale_tasks) else ""
+                    upscale_callback(done, total, fname)
+
+            try:
+                if upscale_callback:
+                    upscale_callback(0, _upscale_total, f"{_upscale_total} carte(s)...")
+                batch_done = self.upscaler.upscale_batch(batch_pairs, progress_cb=_batch_progress)
+                for idx, face_index, raw_path, fname in upscale_tasks:
+                    out = raw_path.replace(".png", "_1200dpi.png")
+                    if raw_path in batch_done:
+                        final_face_paths[(idx, face_index)] = out
+                    else:
+                        print(f"[BatchImporter] Batch manqué pour {fname!r} — fallback 300 DPI")
+                        final_face_paths[(idx, face_index)] = self._apply_300dpi_bleed(raw_path)
+
+            except Exception as e:
+                print(f"[BatchImporter] Batch upscale échoué ({e}) — fallback individuel")
+                for i, (idx, face_index, raw_path, fname) in enumerate(upscale_tasks):
+                    out = raw_path.replace(".png", "_1200dpi.png")
+                    try:
+                        final_face_paths[(idx, face_index)] = self.upscaler.upscale_to_1200dpi(raw_path, out)
+                    except Exception as ue:
+                        print(f"[BatchImporter] Upscaling échoué pour {fname!r} : {ue} — fallback 300 DPI")
+                        final_face_paths[(idx, face_index)] = self._apply_300dpi_bleed(raw_path)
                     if upscale_callback:
-                        upscale_callback(_upscale_done[0], _upscale_total, fname)
-                return res
-
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                for idx, face_index, fp in pool.map(_upscale_one, upscale_tasks):
-                    final_face_paths[(idx, face_index)] = fp
+                        upscale_callback(i + 1, _upscale_total, fname)
 
         # Apply proxy watermark to all final images (if requested)
         if watermark is not None:

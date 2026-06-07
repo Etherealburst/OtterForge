@@ -10,7 +10,9 @@ Prérequis :
 """
 
 import os
+import shutil
 import subprocess
+import tempfile
 
 from PIL import Image
 
@@ -90,6 +92,68 @@ class ImageUpscaler:
         print(f"[ImageUpscaler] OK -> {output_path}")
         return output_path
 
+    def upscale_batch(self, tasks: list[tuple[str, str]],
+                      progress_cb=None) -> dict[str, str]:
+        """Upscale plusieurs images en un seul processus ESRGAN (modèle chargé une seule fois).
+
+        tasks : liste de (input_path, output_path)
+        progress_cb : callable(done: int, total: int) optionnel — appelé après le batch
+        Retourne un dict {input_path: output_path} pour les images réussies.
+        """
+        if not self.is_available():
+            raise FileNotFoundError(
+                f"Real-ESRGAN introuvable : {self.exe_path}\n"
+                "Vérifie le chemin dans Paramètres → Upscaling."
+            )
+        if not tasks:
+            return {}
+
+        with tempfile.TemporaryDirectory(prefix="of_esrgan_") as tmpdir:
+            in_dir  = os.path.join(tmpdir, "in")
+            out_dir = os.path.join(tmpdir, "out")
+            os.makedirs(in_dir)
+            os.makedirs(out_dir)
+
+            # Copie les inputs dans le dossier temp avec noms indexés
+            index_map: dict[str, tuple[str, str]] = {}
+            for i, (src, dst) in enumerate(tasks):
+                stem = f"img_{i:04d}"
+                shutil.copy2(src, os.path.join(in_dir, f"{stem}.png"))
+                index_map[stem] = (src, dst)
+
+            print(f"[ImageUpscaler] Batch upscale : {len(tasks)} image(s)")
+            cmd = [
+                self.exe_path,
+                "-i", in_dir, "-o", out_dir,
+                "-n", REALESRGAN_MODEL,
+                "-s", "4", "-f", "png",
+            ]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Real-ESRGAN batch échoué\nstderr : {result.stderr}"
+                )
+
+            # Déplace les sorties vers leur destination finale
+            done: dict[str, str] = {}
+            for i, (stem, (src, dst)) in enumerate(index_map.items()):
+                out_tmp = os.path.join(out_dir, f"{stem}.png")
+                if os.path.exists(out_tmp):
+                    os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+                    shutil.move(out_tmp, dst)
+                    self._fit_to_mpc(dst)
+                    done[src] = dst
+                    print(f"[ImageUpscaler] Batch OK ({i+1}/{len(tasks)}) -> {dst}")
+                if progress_cb:
+                    progress_cb(i + 1, len(tasks))
+
+        return done
+
     def _fit_to_mpc(self, image_path: str) -> None:
         """Scale-to-fit dans la zone de coupe + fond noir pour le bleed (3288×4488 px).
 
@@ -114,7 +178,7 @@ class ImageUpscaler:
         x_off = (MPC_TARGET_W - new_w) // 2
         y_off = (MPC_TARGET_H - new_h) // 2
         canvas.paste(img.convert("RGB"), (x_off, y_off))
-        canvas.save(image_path, "PNG", compress_level=9, optimize=True)
+        canvas.save(image_path, "PNG", compress_level=3)
         print(f"[ImageUpscaler] Bleed {MPC_TARGET_W}x{MPC_TARGET_H} px "
               f"(card: {new_w}x{new_h}, offset: {x_off},{y_off})")
 

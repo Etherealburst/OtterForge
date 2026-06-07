@@ -876,7 +876,7 @@ class CardInspectorPanel(ctk.CTkFrame):
         _apply_fill = True
         try:
             _norm_ip = card.image_path.replace("\\", "/")
-            if "/cache/custom/" in _norm_ip:
+            if card.is_custom:
                 _apply_fill = False
             else:
                 _cj = _load_card_meta(card.image_path)

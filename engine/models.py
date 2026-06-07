@@ -28,6 +28,7 @@ class Card:
         self.image_path = image_path
         self.count = 1
         self.back_image_path: str | None = None  # override endos pour cette carte
+        self.is_custom: bool = False               # True pour les cartes créées via +Forge ou import custom
         self.watermark_offset: tuple = (0, 0)      # "OtterForge Proxy" (dx, dy), ref 672×936 px
         self.watermark_nfs_offset: tuple = (0, 0)  # "Not for sale" (dx, dy), ref 672×936 px
         self.watermark_bg: str = "auto"            # "auto" | "transparent" | "black"
@@ -41,6 +42,8 @@ class Card:
         }
         if self.back_image_path:
             d["back_image_path"] = self.back_image_path
+        if self.is_custom:
+            d["is_custom"] = True
         if self.watermark_offset != (0, 0):
             d["watermark_offset"] = list(self.watermark_offset)
         if self.watermark_nfs_offset != (0, 0):

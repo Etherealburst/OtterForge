@@ -10,13 +10,44 @@ Endpoints supportés :
 
 import os
 import json
+import time
 import requests
+
+from config import CACHE_DIR as _BASE_CACHE
+from engine.file_utils import safe_write_bytes
 
 
 SCRYFALL_API_NAMED = "https://api.scryfall.com/cards/named"
 SCRYFALL_API_SET   = "https://api.scryfall.com/cards/{set_code}/{collector_number}"
 
-_META_CACHE_FOLDER = "cache/scryfall"
+_META_CACHE_FOLDER = os.path.join(_BASE_CACHE, "scryfall")
+
+_HEADERS = {"User-Agent": "OtterForge/2.0 (personal proxy tool)"}
+
+
+def _get_with_retry(url: str, max_attempts: int = 3, timeout: int = 30, **kwargs) -> requests.Response:
+    """GET avec retry linéaire (1 s, 2 s, 3 s) sur erreurs réseau transitoires.
+
+    Retry : ConnectionError, Timeout, 5xx serveur.
+    Pas de retry : 4xx client (erreur attendue, ex. carte introuvable).
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            resp = requests.get(url, timeout=timeout, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_exc = e
+            if attempt < max_attempts - 1:
+                time.sleep(attempt + 1)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code < 500:
+                raise  # 4xx = erreur client → pas de retry
+            last_exc = e
+            if attempt < max_attempts - 1:
+                time.sleep(attempt + 1)
+    raise last_exc
 
 
 class ScryfallDownloader:
@@ -38,6 +69,7 @@ class ScryfallDownloader:
             response = requests.get(
                 SCRYFALL_API_NAMED,
                 params=params,
+                headers=_HEADERS,
                 timeout=10,
             )
             response.raise_for_status()
@@ -89,7 +121,7 @@ class ScryfallDownloader:
             collector_number=collector_number,
         )
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, headers=_HEADERS, timeout=10)
             response.raise_for_status()
             card_json = response.json()
         except requests.exceptions.HTTPError as e:
@@ -108,7 +140,7 @@ class ScryfallDownloader:
 
         return card_json
 
-    def download_image(self, card_json: dict, folder: str = "cache/scryfall") -> str | None:
+    def download_image(self, card_json: dict, folder: str | None = None) -> str | None:
         """
         Télécharge l'image PNG de la face principale d'une carte.
         Retourne le chemin local, ou None en cas d'erreur.
@@ -117,13 +149,15 @@ class ScryfallDownloader:
         paths = self.download_all_face_images(card_json, folder)
         return paths[0] if paths else None
 
-    def download_all_face_images(self, card_json: dict, folder: str = "cache/scryfall") -> list[str]:
+    def download_all_face_images(self, card_json: dict, folder: str | None = None) -> list[str]:
         """
         Télécharge toutes les faces d'une carte.
         Retourne une liste de chemins :
           - 1 élément pour une carte simple-face
           - 2 éléments pour une carte double-face (transform, modal_dfc…)
         """
+        if folder is None:
+            folder = os.path.join(_BASE_CACHE, "scryfall")
         os.makedirs(folder, exist_ok=True)
 
         set_code  = card_json.get("set", "")
@@ -141,10 +175,9 @@ class ScryfallDownloader:
             if os.path.exists(path):
                 return path
             try:
-                response = requests.get(image_url, timeout=30)
-                response.raise_for_status()
-                with open(path, "wb") as f:
-                    f.write(response.content)
+                response = _get_with_retry(image_url, timeout=30, headers={"User-Agent": "OtterForge/2.0"})
+                with open(path, "wb") as fh:
+                    fh.write(response.content)
                 return path
             except (requests.exceptions.RequestException, OSError) as e:
                 print(f"[ScryfallDownloader] Erreur téléchargement image : {e}")

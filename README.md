@@ -8,7 +8,7 @@ OtterForge is a Windows desktop app that lets you build proxy MTG decks from scr
 
 ## Download
 
-**[⬇ Download OtterForge v1.5.3 (Windows, ~370 MB)](https://github.com/Etherealburst/OtterForge/releases/tag/v1.5.3)**
+**[⬇ Download OtterForge v2.0.0 (Windows, ~370 MB)](https://github.com/Etherealburst/OtterForge/releases/tag/v2.0.0)**
 
 Unzip anywhere → double-click `OtterForge.exe` → done. No installation required.
 
@@ -32,9 +32,10 @@ Unzip anywhere → double-click `OtterForge.exe` → done. No installation requi
 - **Card search** — Search any Magic card by name via the Scryfall API (fuzzy matching, set + collector number, Moxfield/Arena format)
 - **Bulk import** — Paste or load a `.txt` deck list and import the entire deck at once
 - **Folder import** — Import card images directly from a local folder (custom artwork, alter art, unofficial cards)
+- **+Forge — Card Creator** — Design fully custom cards from scratch: choose a frame style, color, artwork, write name / type / oracle text with inline mana symbols and flavor, set P/T — generates a print-ready proxy without any Scryfall template
 - **Proxy watermark** — Automatically stamps each card with an OtterForge proxy label (set, CN, artist, year)
 - **Double-faced cards** — Both faces are downloaded, stored, and handled automatically (DFC front + back)
-- **AI upscaling** — Optional Real-ESRGAN ×4 upscaling to 1200 DPI for sharper prints (requires separate download)
+- **AI upscaling** — Optional Real-ESRGAN ×4 upscaling to 1200 DPI for sharper prints (requires separate download); batch mode loads the AI model once for all cards — much faster than before
 - **Multiple decks** — Work on several decks simultaneously with tabbed navigation
 - **Card back management** — Set a global card back per deck, or per-card backs for DFC
 - **MPC automation** — One-click upload to MakePlayingCards.com via automated browser (Playwright, already bundled)
@@ -117,7 +118,29 @@ A browser window opens (or runs silently in the background) and fills in your MP
 
 ---
 
-### 6. Export print sheets
+### 6. Create custom cards (+Forge)
+
+Click **+Forge** in the toolbar to open the Card Creator panel.
+
+| Field | Description |
+|-------|-------------|
+| **Name** | Card name — displayed in the name bar with Beleren Bold font |
+| **Mana cost** | e.g. `{2}{W}{U}` — rendered as PNG symbols in the name bar |
+| **Color** | W / U / B / R / G / M (multicolor) / C (colorless) / A (artifact) / Land |
+| **Frame style** | M15 (modern), Extended Art, Borderless, Full Art, 8th Edition, Old Frame, Token |
+| **Type line** | e.g. `Legendary Creature — Human Wizard` |
+| **Oracle text** | Rules text; use `{W}`, `{2}`, `{T}` etc. for inline mana symbols |
+| **Flavor text** | Italic flavor text below a divider line |
+| **P/T** | Power / Toughness for creatures (leave blank for non-creatures) |
+| **Artwork** | Browse for any image — it is scaled to fill the art window |
+| **N° carte** | Optional: shows your collector number at bottom-left (disabled by default) |
+
+Click **Preview** to see a live render, then **Add to deck** to add the forged card to your active deck.  
+The generated image is saved in `cache/custom/` and behaves like any other card (watermark, upscaling, MPC upload all work normally).
+
+---
+
+### 7. Export print sheets
 
 Click **Export** to generate 3×3 print sheets (300 DPI PNG + ZIP archive) in the `output/sheets/` folder.  
 These are ready for home printing or sending to a local print shop.

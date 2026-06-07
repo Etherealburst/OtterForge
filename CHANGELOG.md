@@ -4,6 +4,38 @@ All notable changes to OtterForge are documented here.
 
 ---
 
+## [v2.0.0] — 2026-06-06
+
+### Added
+- **+Forge — Card Creator** — Build fully custom MTG proxy cards from scratch, no Scryfall template needed
+  - 7 frame styles: M15, Extended Art, Borderless, Full Art, 8th Edition, Old Frame, Token
+  - 9 color identities: W U B R G Multicolor Colorless Artifact Land
+  - Full text layout: card name (Beleren Bold), type line, oracle text with **inline mana symbols**, flavor text (MPlantin Italic)
+  - P/T box for creatures, loyalty counter for planeswalkers
+  - **Auto-shrink oracle text** — fits any amount of rules text without overflow (shrinks to font size 6 before truncating)
+  - Mana cost rendered as PNG symbols, right-aligned in the name bar
+  - N° carte option — optional collector number at bottom-left, disabled by default
+  - Artwork compositing — paste any image file into the art window (scale-to-fill)
+  - **Live preview** — card updates in real time as you type in the +Forge panel
+  - One-click "Add to deck" adds the forged card to the active deck
+
+### Fixed
+- **Scryfall User-Agent** — Scryfall now rejects requests without a descriptive `User-Agent` header (400 `generic_user_agent`); all requests now send `User-Agent: OtterForge/2.0 (personal proxy tool)`. This was silently causing all TXT imports to fail with "No cards imported"
+- **`is_custom` flag on Card** — replaced fragile `"/cache/custom/" in path` string detection with an explicit `is_custom: bool` field on the `Card` dataclass; prevents misdetection when a Scryfall cache path coincidentally contains the word "custom"
+- **Atomic PNG writes** — card images are now written via temp file + `os.replace()` to prevent corrupt PNGs if the app closes mid-write
+- **Metadata cache path** — `_META_CACHE_FOLDER` now uses the absolute `CACHE_DIR` path (from `config.py`) instead of a CWD-relative path; metadata is always saved correctly regardless of how the exe is launched
+- **Skip report when 0 cards imported** — the skip report dialog now appears even when all cards fail, so the failure reason is always visible instead of just "No cards imported"
+- **`_upload_in_progress` double-reset** — removed the redundant `finally: self._upload_in_progress = False` that reset the flag before `_on_mpc_upload_done` could run on the main thread
+
+### Improved
+- **Batch AI upscaling** — Real-ESRGAN is now invoked **once for all cards** in a single process (folder-to-folder mode); the model loads once instead of once per card. Typical speedup: ~3–5× for 5+ cards (e.g. 10 cards: ~5 min → ~1–2 min)
+- **MPC PNG save speed** — compress level reduced from 9 to 3 for 3288×4488 px files; ~5× faster saves with only ~20% larger files (still well within MPC's upload limits)
+- **Deck schema v2** — deck JSON files now include `schema_version: 2`; v1 decks are automatically migrated on load with no user action required
+- **Corrupt deck warning** — if a deck JSON fails to load at startup, a statusbar warning names the file instead of silently skipping it
+- **Scryfall image download retry** — image downloads now retry up to 3 times on transient network errors with linear backoff (1 s, 2 s, 3 s)
+
+---
+
 ## [v1.5.3] — 2026-06-03
 
 ### Fixed

@@ -141,6 +141,7 @@ class DeckManager:
     def save_deck_at(self, deck: "Deck", path: str) -> None:
         """Sauvegarde un deck spécifique en JSON."""
         data = {
+            "schema_version": 2,
             "name": deck.name,
             "back_image": deck.back_image,
             "cards": [c.to_dict() for c in deck.cards],
@@ -152,12 +153,31 @@ class DeckManager:
         """
         Charge un deck depuis un fichier JSON et le définit comme actif.
         Retourne le deck chargé.
+        Lève ValueError si le fichier est corrompu ou illisible.
         """
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            raise ValueError(
+                f"Deck corrompu ou illisible : {os.path.basename(path)!r} — {e}"
+            ) from e
 
-        deck = Deck(data["name"])
+        try:
+            deck = Deck(data["name"])
+        except KeyError as e:
+            raise ValueError(
+                f"Structure JSON invalide dans {os.path.basename(path)!r} : clé manquante {e}"
+            ) from e
+
         deck.back_image = data.get("back_image")
+
+        # Migration de schéma : v1 → v2 (is_custom déduit du chemin pour les anciens decks)
+        schema_version = data.get("schema_version", 1)
+        if schema_version < 2:
+            for c in data.get("cards", []):
+                if "/cache/custom/" in c.get("image_path", "").replace("\\", "/"):
+                    c["is_custom"] = True
 
         skipped = 0
         for c in data["cards"]:
@@ -175,6 +195,7 @@ class DeckManager:
                 continue
             card = Card(c["name"], image_path)
             card.count = c.get("count", 1)
+            card.is_custom = bool(c.get("is_custom", False))
             wo = c.get("watermark_offset")
             if wo and len(wo) == 2:
                 card.watermark_offset = (int(wo[0]), int(wo[1]))

@@ -17,6 +17,7 @@ Drawing order:
 
 import os
 from PIL import Image, ImageDraw, ImageFont
+from engine.file_utils import safe_save_png
 
 
 _WINDOWS_FONT_CANDIDATES = [
@@ -122,9 +123,10 @@ class ProxyWatermark:
 
     def apply(self, image_path: str, card_json: dict | None = None,
               offset: tuple = (0, 0), nfs_offset: tuple = (0, 0),
-              bg: str = "transparent") -> None:
+              bg: str = "transparent", is_custom: bool = False) -> None:
         """Modify the image at image_path in-place (disk write).
         Saves a clean _orig.png alongside on first application (for preview use).
+        is_custom=True skips the collector-bar fill zone (custom cards have no MTG bar).
         """
         # Preserve the pre-watermark original for zoom-preview transparency.
         # Always draw from _orig.png when it exists so re-applying watermark
@@ -154,9 +156,9 @@ class ProxyWatermark:
             return
 
         _norm = image_path.replace("\\", "/")
-        _skip_fill = "/cache/custom/" in _norm
+        _skip_fill = is_custom or "/cache/custom/" in _norm
         self._draw(img, card_json, offset, nfs_offset, bg, skip_fill=_skip_fill)
-        img.save(image_path, "PNG", compress_level=6)
+        safe_save_png(img, image_path, compress_level=6)
         print(f"[ProxyWatermark] Applied: {os.path.basename(image_path)}")
 
         # Workspace and inspector fall back to the native .png for display (not _1200dpi.png).

@@ -12,6 +12,8 @@ from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image, ImageTk
 
+from config import CACHE_DIR
+
 from engine.card_creator_engine import (
     CardCreatorEngine, CardData,
     CardColor, CardType, FrameStyle, Rarity,
@@ -35,10 +37,13 @@ _COLOR_CODES   = {v: k for k, v in _COLOR_LABELS.items()}
 _TYPE_LABELS   = [ct.value for ct in CardType]
 
 _FRAME_LABELS  = {
-    FrameStyle.M15:    "M15 (Modern 2015+)",
-    FrameStyle.EIGHTH: "8th Edition (Classic)",
-    FrameStyle.OLD:    "Old Border (pre-2003)",
-    FrameStyle.TOKEN:  "Token",
+    FrameStyle.M15:        "M15 (Modern 2015+)",
+    FrameStyle.EXTENDED:   "Extended Art",
+    FrameStyle.BORDERLESS: "Borderless",
+    FrameStyle.FULLART:    "Full Art",
+    FrameStyle.EIGHTH:     "8th Edition (Classic)",
+    FrameStyle.OLD:        "Old Border (pre-2003)",
+    FrameStyle.TOKEN:      "Token",
 }
 _FRAME_BY_LABEL = {v: k for k, v in _FRAME_LABELS.items()}
 
@@ -50,9 +55,82 @@ _RARITY_LABELS = {
 }
 _RARITY_BY_LABEL = {v: k for k, v in _RARITY_LABELS.items()}
 
+# Text color presets for typography controls
+_TEXT_COLORS = {
+    "Noir":  (0, 0, 0),
+    "Blanc": (255, 255, 255),
+    "Or":    (210, 170, 45),
+    "Gris":  (140, 140, 140),
+}
+
 # Physical preview dimensions (pixels on screen)
 _PREVIEW_W_PX = 190
 _PREVIEW_H_PX = 265
+
+
+# ── Zoom preview popup ────────────────────────────────────────────────────────
+
+class _ZoomPreviewDialog(ctk.CTkToplevel):
+    """Read-only zoomed card preview, centered on screen."""
+
+    # Logical display size (CTk units). On high-DPI: PIL renders at _ws× physical pixels.
+    _ZOOM_W = 465
+    _ZOOM_H = 651
+
+    def __init__(self, parent, img: Image.Image) -> None:
+        super().__init__(parent)
+        self.title("Apercu carte")
+        self.resizable(False, False)
+        self._parent_ref = parent
+
+        try:
+            from customtkinter import ScalingTracker as _ST
+            _ws = _ST.get_widget_scaling(parent)
+        except Exception:
+            _ws = 1.0
+
+        pad_x, pad_y = 16, 52
+        W = self._ZOOM_W + pad_x          # logical window width
+        H = self._ZOOM_H + pad_y          # logical window height
+
+        # Set size; positioning is done after idle to use consistent winfo coords
+        self.geometry(f"{W}x{H}")
+
+        # PIL at physical pixels → CTkImage at logical units (exact pixel match)
+        phys_w = max(1, round(self._ZOOM_W * _ws))
+        phys_h = max(1, round(self._ZOOM_H * _ws))
+        zoom = img.convert("RGB").resize((phys_w, phys_h), Image.LANCZOS)
+        ctk_img = ctk.CTkImage(light_image=zoom, dark_image=zoom,
+                               size=(self._ZOOM_W, self._ZOOM_H))
+        self._img_ref = ctk_img
+
+        ctk.CTkLabel(self, image=ctk_img, text="",
+                     fg_color="#0d0a14").pack(padx=8, pady=(8, 4))
+        ctk.CTkButton(self, text="Fermer", width=120, height=28,
+                      font=ctk.CTkFont(size=11),
+                      fg_color="#28252e", hover_color="#3a3548",
+                      command=self.destroy).pack(pady=(0, 8))
+
+        self.lift()
+        self.grab_set()
+        self.bind("<Escape>", lambda _: self.destroy())
+        # Center on parent after window is mapped (avoids physical/logical px mismatch)
+        self.after(10, self._center_on_parent)
+
+    def _center_on_parent(self) -> None:
+        parent = self._parent_ref
+        self.update_idletasks()
+        dw = self.winfo_width()
+        dh = self.winfo_height()
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+        px = parent.winfo_rootx() + (pw - dw) // 2
+        py = parent.winfo_rooty() + (ph - dh) // 2
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        px = max(0, min(px, sw - dw))
+        py = max(0, min(py, sh - dh))
+        self.geometry(f"+{px}+{py}")
 
 
 # ── Panel ─────────────────────────────────────────────────────────────────────
@@ -68,6 +146,34 @@ class CardCreatorPanel(ctk.CTkToplevel):
         self._preview_busy = False
         self._preview_tk   = None
         self._art_path     = ""
+        self._v_upscale    = ctk.BooleanVar(value=False)
+        # Typography — colors
+        self._v_name_color  = ctk.StringVar(value="Noir")
+        self._v_type_color  = ctk.StringVar(value="Noir")
+        self._v_text_color  = ctk.StringVar(value="Noir")
+        self._v_pt_color    = ctk.StringVar(value="Noir")
+        # Typography — sizes
+        self._v_name_size   = ctk.StringVar(value="28")
+        self._v_type_size   = ctk.StringVar(value="22")
+        self._v_oracle_min  = ctk.StringVar(value="9")
+        self._v_pt_size     = ctk.StringVar(value="26")
+        # Per-section formatting toggles (bold / italic / underline / highlight)
+        self._v_name_bold        = ctk.BooleanVar(value=False)
+        self._v_name_italic      = ctk.BooleanVar(value=False)
+        self._v_name_underline   = ctk.BooleanVar(value=False)
+        self._v_name_highlight   = ctk.BooleanVar(value=False)
+        self._v_type_bold        = ctk.BooleanVar(value=False)
+        self._v_type_italic      = ctk.BooleanVar(value=False)
+        self._v_type_underline   = ctk.BooleanVar(value=False)
+        self._v_type_highlight   = ctk.BooleanVar(value=False)
+        self._v_oracle_bold      = ctk.BooleanVar(value=False)
+        self._v_oracle_italic    = ctk.BooleanVar(value=False)
+        self._v_oracle_underline = ctk.BooleanVar(value=False)
+        self._v_oracle_highlight = ctk.BooleanVar(value=False)
+        self._v_pt_bold          = ctk.BooleanVar(value=False)
+        self._v_pt_italic        = ctk.BooleanVar(value=False)
+        self._v_pt_underline     = ctk.BooleanVar(value=False)
+        self._v_pt_highlight     = ctk.BooleanVar(value=False)
 
         # Compute CTk-unit sizes from physical target (accounts for widget_scaling)
         try:
@@ -83,7 +189,7 @@ class CardCreatorPanel(ctk.CTkToplevel):
         self.grab_set()
         self.lift()
 
-        W, H = 920, 900
+        W, H = 920, 700
         self.update_idletasks()
         try:
             from customtkinter import ScalingTracker as _ST
@@ -121,7 +227,7 @@ class CardCreatorPanel(ctk.CTkToplevel):
         self._build_form()
 
     def _build_top_bar(self) -> None:
-        """Top bar: preview image (left) + status + export buttons (right)."""
+        """Top bar: preview image (left) + status + action buttons (right)."""
         PAD = 10
         # Preview image
         self._preview_label = ctk.CTkLabel(
@@ -142,20 +248,35 @@ class CardCreatorPanel(ctk.CTkToplevel):
         self._status_var = ctk.StringVar(value="")
         ctk.CTkLabel(rhs, textvariable=self._status_var,
                      font=ctk.CTkFont(size=9), text_color="#a09aaa",
-                     wraplength=260, anchor="w").pack(fill="x", pady=(2, 8))
+                     wraplength=260, anchor="w").pack(fill="x", pady=(2, 6))
 
         btn_w = 220
-        ctk.CTkButton(rhs, text="Previsualiser", width=btn_w, height=30,
+
+        # Primary action: Add to deck
+        deck_row = ctk.CTkFrame(rhs, fg_color="transparent")
+        deck_row.pack(anchor="w", pady=(0, 4))
+        ctk.CTkButton(deck_row, text="Ajouter au deck", width=btn_w, height=34,
+                      font=ctk.CTkFont(size=12, weight="bold"),
+                      fg_color="#c04828", hover_color="#a83820",
+                      command=self._add_to_deck).pack(side="left")
+        upscale_available = getattr(self._app, "upscaler", None) and self._app.upscaler.is_available()
+        ctk.CTkCheckBox(deck_row, text="Upscale", variable=self._v_upscale,
+                        state="normal" if upscale_available else "disabled",
+                        width=80, font=ctk.CTkFont(size=10),
+                        text_color="#a09aaa" if not upscale_available else "#f0ece4",
+                        ).pack(side="left", padx=(8, 0))
+
+        ctk.CTkButton(rhs, text="Zoom apercu", width=btn_w, height=30,
                       font=ctk.CTkFont(size=11),
                       fg_color="#28252e", hover_color="#3a3548",
-                      command=self._update_preview).pack(anchor="w", pady=(0, 4))
-        ctk.CTkButton(rhs, text="Exporter PNG 300 DPI", width=btn_w, height=30,
+                      command=self._show_zoom_preview).pack(anchor="w", pady=(0, 4))
+        ctk.CTkButton(rhs, text="Exporter PNG 300 DPI", width=btn_w, height=28,
                       font=ctk.CTkFont(size=11),
-                      fg_color="#c04828", hover_color="#a83820",
+                      fg_color="#28252e", hover_color="#3a3548",
                       command=lambda: self._export(300)).pack(anchor="w", pady=(0, 4))
-        ctk.CTkButton(rhs, text="Exporter PNG 900 DPI", width=btn_w, height=30,
+        ctk.CTkButton(rhs, text="Exporter PNG 900 DPI", width=btn_w, height=28,
                       font=ctk.CTkFont(size=11),
-                      fg_color="#8a3018", hover_color="#7a2810",
+                      fg_color="#28252e", hover_color="#3a3548",
                       command=lambda: self._export(900)).pack(anchor="w")
 
     # ── Form ──────────────────────────────────────────────────────────────────
@@ -339,36 +460,97 @@ class CardCreatorPanel(ctk.CTkToplevel):
                       fg_color="#28252e", hover_color="#3a3548",
                       command=self._browse_art).pack(side="left", padx=(6, 0))
 
-        # ── 9. Metadata ───────────────────────────────────────────────────────
+        # ── 9. Typography ─────────────────────────────────────────────────────
         _sep()
-        _lbl("Metadonnees", size=11, color="#f0ece4")
+        _lbl("Typographie", size=11, color="#f0ece4")
 
-        meta_grid = ctk.CTkFrame(f, fg_color="transparent")
-        meta_grid.pack(fill="x", padx=12)
-        meta_grid.grid_columnconfigure((1, 3), weight=1)
+        color_values = list(_TEXT_COLORS.keys())
+        typo_grid = ctk.CTkFrame(f, fg_color="transparent")
+        typo_grid.pack(fill="x", padx=12)
+        # cols: label | color menu | size label | size entry | unit label
+        typo_grid.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(meta_grid, text="Artiste:", anchor="w",
-                     font=ctk.CTkFont(size=10), text_color="#a09aaa",
-                     width=50).grid(row=0, column=0, sticky="w")
-        self._v_artist = ctk.StringVar(value="Unknown Artist")
-        ctk.CTkEntry(meta_grid, textvariable=self._v_artist,
-                     font=ctk.CTkFont(size=11)).grid(row=0, column=1, sticky="ew", padx=(4, 12))
-        self._v_artist.trace_add("write", self._on_form_change)
+        _FMT_OPTS = [("Gras", 0), ("Ital.", 1), ("Souligne", 2), ("Surligné", 3)]
 
-        ctk.CTkLabel(meta_grid, text="Set:", anchor="w",
-                     font=ctk.CTkFont(size=10), text_color="#a09aaa",
-                     width=30).grid(row=0, column=2, sticky="w")
-        self._v_set = ctk.StringVar(value="OTF")
-        ctk.CTkEntry(meta_grid, textvariable=self._v_set, width=60,
-                     font=ctk.CTkFont(size=11)).grid(row=0, column=3, sticky="w")
-        self._v_set.trace_add("write", self._on_form_change)
+        def _row(parent, row_i, lbl_txt, v_color, v_size,
+                 size_hint="pt", sep_before=False, fmt_vars=None):
+            if sep_before:
+                ctk.CTkFrame(parent, height=1, fg_color="#2a2535").grid(
+                    row=row_i, column=0, columnspan=5, sticky="ew",
+                    padx=0, pady=(6, 4))
+                row_i += 1
 
-        ctk.CTkLabel(meta_grid, text="No:", anchor="w",
-                     font=ctk.CTkFont(size=10), text_color="#a09aaa",
-                     width=30).grid(row=1, column=2, sticky="w", pady=(4, 0))
+            ctk.CTkLabel(parent, text=lbl_txt, anchor="w",
+                         font=ctk.CTkFont(size=10), text_color="#a09aaa",
+                         width=80).grid(row=row_i, column=0, sticky="w", pady=(2, 0))
+            ctk.CTkOptionMenu(parent, variable=v_color, values=color_values,
+                               font=ctk.CTkFont(size=10), height=26, width=96,
+                               fg_color="#28252e", button_color="#3a3548",
+                               ).grid(row=row_i, column=1, sticky="w",
+                                      padx=(4, 8), pady=(2, 0))
+            v_color.trace_add("write", self._on_form_change)
+
+            ctk.CTkLabel(parent, text="Taille:", anchor="e",
+                         font=ctk.CTkFont(size=10), text_color="#a09aaa",
+                         width=44).grid(row=row_i, column=2, sticky="e", pady=(2, 0))
+            ctk.CTkEntry(parent, textvariable=v_size,
+                         width=46, font=ctk.CTkFont(size=11),
+                         ).grid(row=row_i, column=3, sticky="w",
+                                padx=(4, 2), pady=(2, 0))
+            ctk.CTkLabel(parent, text=size_hint, anchor="w",
+                         font=ctk.CTkFont(size=9), text_color="#6a6478",
+                         width=24).grid(row=row_i, column=4, sticky="w", pady=(2, 0))
+            v_size.trace_add("write", self._on_form_change)
+            row_i += 1
+
+            if fmt_vars:
+                _fmt = ctk.CTkFrame(parent, fg_color="transparent")
+                _fmt.grid(row=row_i, column=1, columnspan=4, sticky="w", pady=(0, 4))
+                for _fl, _fv in zip([l for l, _ in _FMT_OPTS], fmt_vars):
+                    ctk.CTkCheckBox(_fmt, text=_fl, variable=_fv,
+                                     font=ctk.CTkFont(size=10),
+                                     checkbox_width=14, checkbox_height=14, width=70,
+                                     ).pack(side="left", padx=(0, 2))
+                    _fv.trace_add("write", self._on_form_change)
+                row_i += 1
+
+            return row_i
+
+        _nf = [self._v_name_bold,   self._v_name_italic,
+               self._v_name_underline, self._v_name_highlight]
+        _tf = [self._v_type_bold,   self._v_type_italic,
+               self._v_type_underline, self._v_type_highlight]
+        _of = [self._v_oracle_bold, self._v_oracle_italic,
+               self._v_oracle_underline, self._v_oracle_highlight]
+        _pf = [self._v_pt_bold,     self._v_pt_italic,
+               self._v_pt_underline, self._v_pt_highlight]
+
+        r = 0
+        r = _row(typo_grid, r, "Nom:",         self._v_name_color,  self._v_name_size, fmt_vars=_nf)
+        r = _row(typo_grid, r, "Type:",        self._v_type_color,  self._v_type_size, fmt_vars=_tf)
+        r = _row(typo_grid, r, "Texte oracle:", self._v_text_color, self._v_oracle_min, fmt_vars=_of)
+        r = _row(typo_grid, r, "Force/End:",   self._v_pt_color,    self._v_pt_size,
+                 sep_before=True, fmt_vars=_pf)
+
+        # ── 10. Numéro de carte ────────────────────────────────────────────────
+        _sep()
+        num_row = ctk.CTkFrame(f, fg_color="transparent")
+        num_row.pack(fill="x", padx=12, pady=(0, 4))
+
+        self._v_show_number = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            num_row, text="N° carte :", variable=self._v_show_number,
+            font=ctk.CTkFont(size=11), text_color="#a09aaa",
+            command=self._on_show_number_toggle,
+            checkbox_width=16, checkbox_height=16,
+        ).pack(side="left")
+
         self._v_number = ctk.StringVar(value="001")
-        ctk.CTkEntry(meta_grid, textvariable=self._v_number, width=60,
-                     font=ctk.CTkFont(size=11)).grid(row=1, column=3, sticky="w", pady=(4, 0))
+        self._e_number = ctk.CTkEntry(
+            num_row, textvariable=self._v_number, width=60,
+            font=ctk.CTkFont(size=11), state="disabled",
+        )
+        self._e_number.pack(side="left", padx=(8, 0))
         self._v_number.trace_add("write", self._on_form_change)
 
         # Bottom padding
@@ -377,6 +559,11 @@ class CardCreatorPanel(ctk.CTkToplevel):
     # ── Event handlers ────────────────────────────────────────────────────────
 
     def _on_form_change(self, *_) -> None:
+        self._schedule_preview()
+
+    def _on_show_number_toggle(self) -> None:
+        state = "normal" if self._v_show_number.get() else "disabled"
+        self._e_number.configure(state=state)
         self._schedule_preview()
 
     def _on_type_change(self, *_) -> None:
@@ -407,7 +594,7 @@ class CardCreatorPanel(ctk.CTkToplevel):
             self._art_var.set(fname if len(fname) <= 42 else "..." + fname[-40:])
             self._schedule_preview()
 
-    # ── Preview ───────────────────────────────────────────────────────────────
+    # ── Preview (thumbnail) ───────────────────────────────────────────────────
 
     def _schedule_preview(self, *_) -> None:
         if self._preview_job:
@@ -419,25 +606,31 @@ class CardCreatorPanel(ctk.CTkToplevel):
         if self._preview_busy:
             return
         self._preview_busy = True
-        self._status_var.set("Rendu en cours...")
-        card = self._build_card_data()
-        threading.Thread(target=self._render_worker, args=(card,), daemon=True).start()
+        try:
+            card = self._build_card_data()
+        except Exception as e:
+            self._preview_busy = False
+            self._status_var.set(f"Erreur params: {str(e)[:60]}")
+            return
+        threading.Thread(target=self._render_worker, args=(card, False), daemon=True).start()
 
-    def _render_worker(self, card: CardData) -> None:
+    def _render_worker(self, card: CardData, for_zoom: bool) -> None:
         try:
             img = self._engine.render_card(card)
-            img = img.convert("RGB").resize((_PREVIEW_W_PX, _PREVIEW_H_PX), Image.LANCZOS)
-            self.after(0, self._set_preview, img)
+            if for_zoom:
+                self.after(0, self._open_zoom_preview, img)
+            else:
+                thumb = img.convert("RGB").resize((_PREVIEW_W_PX, _PREVIEW_H_PX), Image.LANCZOS)
+                self.after(0, self._set_preview, thumb)
         except Exception as e:
             self.after(0, self._set_preview_error, str(e))
 
     def _set_preview(self, img: Image.Image) -> None:
         self._preview_busy = False
         try:
-            # CTkImage size in CTk units (self._pw/ph) → renders at physical _PX dimensions
             ctk_img = ctk.CTkImage(light_image=img, dark_image=img,
                                    size=(self._pw, self._ph))
-            self._preview_tk = ctk_img          # prevent GC
+            self._preview_tk = ctk_img
             self._preview_label.configure(image=ctk_img, text="")
             self._status_var.set("")
         except Exception as e:
@@ -447,6 +640,26 @@ class CardCreatorPanel(ctk.CTkToplevel):
         self._preview_busy = False
         self._preview_label.configure(image=None, text="Erreur rendu")
         self._status_var.set(msg[:80])
+
+    # ── Zoom preview popup ────────────────────────────────────────────────────
+
+    def _show_zoom_preview(self) -> None:
+        if self._preview_busy:
+            return
+        self._preview_busy = True
+        self._status_var.set("Rendu zoom...")
+        try:
+            card = self._build_card_data()
+        except Exception as e:
+            self._preview_busy = False
+            self._status_var.set(f"Erreur params: {str(e)[:60]}")
+            return
+        threading.Thread(target=self._render_worker, args=(card, True), daemon=True).start()
+
+    def _open_zoom_preview(self, img: Image.Image) -> None:
+        self._preview_busy = False
+        self._status_var.set("")
+        _ZoomPreviewDialog(self, img)
 
     # ── Card data builder ─────────────────────────────────────────────────────
 
@@ -477,6 +690,18 @@ class CardCreatorPanel(ctk.CTkToplevel):
         toughness = self._v_toughness.get().strip() if card_type == CardType.CREATURE     else ""
         loyalty   = self._v_loyalty.get().strip()   if card_type == CardType.PLANESWALKER else ""
 
+        # Typography — colors
+        name_color = _TEXT_COLORS.get(self._v_name_color.get(), (0, 0, 0))
+        type_color = _TEXT_COLORS.get(self._v_type_color.get(), (0, 0, 0))
+        text_color = _TEXT_COLORS.get(self._v_text_color.get(), (0, 0, 0))
+        pt_color   = _TEXT_COLORS.get(self._v_pt_color.get(),   (0, 0, 0))
+
+        def _sz(var, default, lo=6, hi=60):
+            try:
+                return max(lo, min(hi, int(var.get())))
+            except ValueError:
+                return default
+
         return CardData(
             name             = self._v_name.get().strip() or "Card Name",
             mana_cost        = self._v_mana.get().strip(),
@@ -492,10 +717,73 @@ class CardCreatorPanel(ctk.CTkToplevel):
             toughness        = toughness,
             loyalty          = loyalty,
             art_path         = self._art_path or None,
-            artist           = self._v_artist.get().strip() or "Unknown Artist",
-            set_code         = self._v_set.get().strip().upper() or "OTF",
             collector_number = self._v_number.get().strip() or "001",
+            show_number      = self._v_show_number.get(),
+            name_color       = name_color,
+            type_color       = type_color,
+            text_color       = text_color,
+            pt_color         = pt_color,
+            name_size        = _sz(self._v_name_size,   28, lo=8, hi=48),
+            type_size        = _sz(self._v_type_size,   22, lo=8, hi=40),
+            min_oracle_size  = _sz(self._v_oracle_min,   9, lo=6, hi=32),
+            pt_size          = _sz(self._v_pt_size,     26, lo=8, hi=48),
+            oracle_bold      = self._v_oracle_bold.get(),
+            oracle_italic    = self._v_oracle_italic.get(),
+            oracle_underline = self._v_oracle_underline.get(),
+            oracle_highlight = self._v_oracle_highlight.get(),
+            name_bold        = self._v_name_bold.get(),
+            name_italic      = self._v_name_italic.get(),
+            name_underline   = self._v_name_underline.get(),
+            name_highlight   = self._v_name_highlight.get(),
+            type_bold        = self._v_type_bold.get(),
+            type_italic      = self._v_type_italic.get(),
+            type_underline   = self._v_type_underline.get(),
+            type_highlight   = self._v_type_highlight.get(),
+            pt_bold          = self._v_pt_bold.get(),
+            pt_italic        = self._v_pt_italic.get(),
+            pt_underline     = self._v_pt_underline.get(),
+            pt_highlight     = self._v_pt_highlight.get(),
         )
+
+    # ── Add to deck ───────────────────────────────────────────────────────────
+
+    def _add_to_deck(self) -> None:
+        card   = self._build_card_data()
+        upscale = self._v_upscale.get() and getattr(self._app, "upscaler", None) and self._app.upscaler.is_available()
+        self._status_var.set("Ajout au deck en cours...")
+        threading.Thread(
+            target=self._add_to_deck_worker, args=(card, bool(upscale)), daemon=True
+        ).start()
+
+    def _add_to_deck_worker(self, card: CardData, upscale: bool) -> None:
+        try:
+            custom_cache = os.path.join(CACHE_DIR, "custom")
+            os.makedirs(custom_cache, exist_ok=True)
+
+            safe = card.name
+            for ch in r'\/:*?"<>|':
+                safe = safe.replace(ch, "-")
+            safe = safe.strip().replace(" ", "_")[:40]
+            path = os.path.join(custom_cache, f"{safe}_creator.png")
+
+            self._engine.export_card(card, path, dpi=300)
+
+            if upscale:
+                upscaled = os.path.join(custom_cache, f"{safe}_creator_1200dpi.png")
+                try:
+                    path = self._app.upscaler.upscale_to_1200dpi(path, upscaled)
+                except Exception as e:
+                    print(f"[CardCreator] Upscale failed: {e}")
+
+            if self._app._watermark_enabled:
+                self._app._watermark.apply(path)
+
+            final = os.path.normpath(path)
+            name  = card.name
+            self._app.after(0, self._app._add_custom_card, name, final)
+            self.after(0, self._status_var.set, f"Ajoute au deck : {name}")
+        except Exception as e:
+            self.after(0, self._status_var.set, f"Erreur: {e}")
 
     # ── Export ────────────────────────────────────────────────────────────────
 
