@@ -37,6 +37,17 @@ _COPYRIGHT_Y  = 0.065   # text baseline from bottom
 _CARD_W_REF   = 672.0   # Scryfall native PNG width (reference for offset scaling)
 _CARD_H_REF   = 936.0   # Scryfall native PNG height (reference for offset scaling)
 
+# MPC bleed image sizes → (x_bleed, y_bleed) in pixels.
+# _fit_to_mpc() and fit_native_to_mpc_300() centre the card content in a larger canvas
+# with a black bleed border.  All position fractions must be applied to the card-content
+# area, not the full canvas, otherwise the watermark drifts toward the top-left.
+# x_bleed is always exactly MPC_BLEED_PX (the card hits the trim width precisely).
+# y_bleed is approximated as the same value; the actual value is within ~15 px of this.
+_MPC_BLEED_SIZES: dict[tuple[int, int], tuple[int, int]] = {
+    (3288, 4488): (144, 144),   # 1200 DPI with bleed
+    (822,  1122): (36,  36),    # 300 DPI with bleed
+}
+
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     for path in _WINDOWS_FONT_CANDIDATES:
@@ -86,7 +97,9 @@ def _outlined_text(
     draw.text(pos, text, fill=fill, font=font)
 
 
-def _should_apply_fill(card_json: dict | None, img: Image.Image) -> bool:
+def _should_apply_fill(card_json: dict | None, img: Image.Image,
+                       x0: int = 0, y0: int = 0,
+                       ew: int | None = None, eh: int | None = None) -> bool:
     """Return True when the collector bar is dark enough to need fill/black-bg.
 
     White/silver borders are excluded upfront (they genuinely have light bars).
@@ -95,13 +108,23 @@ def _should_apply_fill(card_json: dict | None, img: Image.Image) -> bool:
     Scryfall's border_color describes the card frame, not the collector strip.
     Many 'borderless' cards (Secret Lair, Final Fantasy, etc.) still have a
     dark bar at the bottom that benefits from fill treatment.
+
+    x0, y0, ew, eh define the card-content area (bleed excluded).
     """
     if card_json:
         bc = card_json.get("border_color", "")
         if bc in ("white", "silver"):
             return False
     w, h = img.size
-    sample = _sample_bg(img, int(w * _COPYRIGHT_X), int(h * 0.92), w, h)
+    if ew is None:
+        ew = w - 2 * x0
+    if eh is None:
+        eh = h - 2 * y0
+    sample = _sample_bg(img,
+                        x0 + int(ew * _COPYRIGHT_X),
+                        y0 + int(eh * 0.92),
+                        x0 + ew,
+                        y0 + eh)
     return (sample[0] + sample[1] + sample[2]) // 3 < 60
 
 
@@ -178,31 +201,40 @@ class ProxyWatermark:
               bg: str = "transparent", skip_fill: bool = False) -> None:
         w, h = img.size
 
-        # Scale offsets from 672×936 reference to actual image dimensions
-        ox     = round(offset[0]     * w / _CARD_W_REF)
-        oy     = round(offset[1]     * h / _CARD_H_REF)
-        nfs_ox = round(nfs_offset[0] * w / _CARD_W_REF)
-        nfs_oy = round(nfs_offset[1] * h / _CARD_H_REF)
+        # Bleed compensation: MPC output images have a black border around the card
+        # content.  All fractional positions must be computed against the card-content
+        # area (ew × eh), then shifted by the bleed offsets (x0, y0) to canvas coords.
+        _bleed = _MPC_BLEED_SIZES.get((w, h))
+        if _bleed:
+            x0, y0 = _bleed
+        else:
+            x0, y0 = 0, 0
+        ew = w - 2 * x0   # effective card-content width
+        eh = h - 2 * y0   # effective card-content height
 
-        strip_h = max(14, int(h * _STRIP_RATIO)) - 9
-        y_top   = h - strip_h
+        # Scale offsets from 672×936 reference to card-content dimensions
+        ox     = round(offset[0]     * ew / _CARD_W_REF)
+        oy     = round(offset[1]     * eh / _CARD_H_REF)
+        nfs_ox = round(nfs_offset[0] * ew / _CARD_W_REF)
+        nfs_oy = round(nfs_offset[1] * eh / _CARD_H_REF)
+
+        strip_h = max(14, int(eh * _STRIP_RATIO)) - 9
+        y_top   = y0 + eh - strip_h          # canvas y of collector-bar top
 
         stamp = self._stamp()
         if not stamp:
             return
 
-        sz   = max(9, int(h * 0.020) - 1)
+        sz   = max(9, int(eh * 0.020) - 1)
         font = _load_font(sz)
 
-        copyright_y  = h - max(sz + 2, int(h * _COPYRIGHT_Y))
-        base_text_y  = max(y_top + 1, copyright_y) - 3   # baseline, before offsets
+        copyright_y  = y0 + eh - max(sz + 2, int(eh * _COPYRIGHT_Y))  # canvas y
+        base_text_y  = max(y_top + 1, copyright_y) - 3                # canvas y, before offsets
 
-        # Measure text height for the targeted fill (uses base position)
         try:
-            bb = font.getbbox(stamp)
-            text_h_px = bb[3] - bb[1]
+            font.getbbox(stamp)   # validate font metrics are available
         except Exception:
-            text_h_px = sz
+            pass
 
         nfs = "Not for sale"
         try:
@@ -210,30 +242,32 @@ class ProxyWatermark:
         except Exception:
             nfs_w = len(nfs) * max(4, sz * 6 // 10)
 
-        stamp_x   = max(0, min(w - 1, int(w * _STAMP_X) + ox))
-        stamp_ty  = max(0, min(h - sz - 1, base_text_y + oy))
+        stamp_x   = max(x0, min(x0 + ew - 1, x0 + int(ew * _STAMP_X) + ox))
+        stamp_ty  = max(y0, min(y0 + eh - sz - 1, base_text_y + oy))
 
-        cx         = int(w * _FILL_X)
-        apply_fill = not skip_fill and _should_apply_fill(card_json, img)
+        cx         = x0 + int(ew * _FILL_X)
+        apply_fill = not skip_fill and _should_apply_fill(card_json, img, x0, y0, ew, eh)
 
         is_creature = card_json and "Creature" in card_json.get("type_line", "")
         nfs_creature_dy = sz if is_creature else 0
 
         if apply_fill:
-            nfs_x = max(0, min(w - 1, w - max(4, w // 60) - nfs_w - 40     + nfs_ox))
+            nfs_x = max(x0, min(x0 + ew - 1,
+                                x0 + ew - max(4, ew // 60) - nfs_w - 40 + nfs_ox))
         else:
-            nfs_x = max(0, min(w - 1, max(w // 2, w - max(4, w // 60) - nfs_w - 190) + nfs_ox))
-        nfs_ty = max(0, min(h - sz - 1, base_text_y + nfs_oy + nfs_creature_dy))
+            nfs_x = max(x0, min(x0 + ew - 1,
+                                max(x0 + ew // 2,
+                                    x0 + ew - max(4, ew // 60) - nfs_w - 190) + nfs_ox))
+        nfs_ty = max(y0, min(y0 + eh - sz - 1, base_text_y + nfs_oy + nfs_creature_dy))
 
         draw = ImageDraw.Draw(img)
 
         if apply_fill:
             # For creature cards stop 5 px before NFS to avoid clipping the P/T box.
-            fill_x1 = max(cx, nfs_x - 5) if is_creature else w
-            # Sample the left border strip to get the frame's background colour
-            # (handles red/gold/showcase frames — not just black).
-            _border_col = _sample_bg(img, 0, y_top, max(1, int(w * 0.04)), h)
-            draw.rectangle([cx, y_top, fill_x1 - 1, h - 1], fill=_border_col)
+            fill_x1 = max(cx, nfs_x - 5) if is_creature else x0 + ew
+            # Sample the left border strip (within card content area) to get the frame colour.
+            _border_col = _sample_bg(img, x0, y_top, max(x0 + 1, x0 + int(ew * 0.04)), y0 + eh)
+            draw.rectangle([cx, y_top, fill_x1 - 1, y0 + eh - 1], fill=_border_col)
             _text_bg_fill = _border_col
         else:
             _text_bg_fill = (0, 0, 0)

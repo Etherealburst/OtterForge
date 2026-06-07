@@ -121,6 +121,10 @@ class OtterForgeApp(_AppBase):
         # Charge les decks sauvegardés, ou crée un deck par défaut
         self._load_saved_decks()
 
+        # One-time background fix: re-apply watermarks on cached 1200dpi files
+        # that had bleed-unaware positions (bug pre-v2.0.1 — see proxy_watermark.py).
+        threading.Thread(target=self._fix_stale_1200dpi_watermarks, daemon=True).start()
+
         # Verrou pour éviter les recherches simultanées
         self._search_lock = threading.Lock()
         self._cache_bytes: int = self._compute_cache_size()
@@ -1621,6 +1625,62 @@ class OtterForgeApp(_AppBase):
             self.workspace.load_cards(deck.cards)
         self.sidebar.refresh()
         self._update_statusbar_info()
+
+    def _fix_stale_1200dpi_watermarks(self) -> None:
+        """One-time background fix: re-apply watermarks on cached _1200dpi.png files
+        that had bleed-unaware positions (bug pre-v2.0.1).
+
+        _draw() used to compute stamp positions as fractions of the full 3288×4488
+        canvas (including 144 px black bleed on each side), placing the watermark
+        ~3% left and ~3% up relative to the actual card content. Fixed in v2.0.1 by
+        making _draw() work in card-content coordinates. This one-time pass re-applies
+        the watermark to already-cached files without requiring re-download/re-upscale.
+
+        Writes cache/scryfall/.wm_bleed_v2 as a sentinel so subsequent startups skip.
+        """
+        marker = os.path.join(CACHE_DIR, "scryfall", ".wm_bleed_v2")
+        if os.path.exists(marker):
+            return
+
+        from ui.card_inspector import _load_card_meta
+
+        processed = 0
+        seen: set[str] = set()
+
+        for deck in self.deck_manager.decks:
+            for card in deck.cards:
+                paths = [card.image_path]
+                if getattr(card, "back_image_path", None):
+                    paths.append(card.back_image_path)
+                for path in paths:
+                    if not path or path in seen or not path.endswith("_1200dpi.png"):
+                        continue
+                    # Only fix files that have a clean _orig source to draw from.
+                    # Files without _orig cannot be safely re-watermarked (no clean source).
+                    orig = path.replace("_1200dpi.png", "_1200dpi_orig.png")
+                    if not os.path.exists(orig):
+                        continue
+                    seen.add(path)
+                    card_json = _load_card_meta(path)
+                    try:
+                        self._watermark.apply(
+                            path,
+                            card_json=card_json,
+                            offset=card.watermark_offset,
+                            nfs_offset=card.watermark_nfs_offset,
+                            bg=getattr(card, "watermark_bg", "transparent"),
+                        )
+                    except Exception as e:
+                        print(f"[WM fix] {os.path.basename(path)}: {e}")
+                    else:
+                        processed += 1
+
+        try:
+            open(marker, "w").close()
+        except Exception:
+            pass
+        if processed:
+            print(f"[WM] Bleed fix: re-applied watermark to {processed} cached 1200dpi image(s)")
 
     def _compute_cache_size(self) -> int:
         cache_dir = os.path.join(CACHE_DIR, "scryfall")
